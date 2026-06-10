@@ -88,11 +88,38 @@ class FissionAudio {
     this.wavCached = false;
     this.fallbackUnlocked = false;
 
+    this.buffers = {};      // Decoded AudioBuffers
+    this.rawBuffers = {};   // Raw ArrayBuffers fetched on startup
+
     this.shootPool = null;
     this.hitPool = null;
     this.bouncePool = null;
     this.fissionPool = null;
     this.registerPool = null;
+    this.initLog = "await_init";
+  }
+
+  // Pre-fetch the physical files on page load
+  async prefetchSounds() {
+    if (typeof window === "undefined") return;
+    const sounds = {
+      shoot: "/sounds/shoot.wav",
+      hit: "/sounds/hit.wav",
+      bounce: "/sounds/bounce.wav",
+      fission: "/sounds/fission.wav",
+      register: "/sounds/register.wav"
+    };
+
+    for (const [name, url] of Object.entries(sounds)) {
+      try {
+        const response = await fetch(url);
+        if (response.ok) {
+          this.rawBuffers[name] = await response.arrayBuffer();
+        }
+      } catch (e) {
+        console.warn(`Failed to prefetch sound ${name}:`, e);
+      }
+    }
   }
 
   cacheWavs() {
@@ -132,46 +159,54 @@ class FissionAudio {
     }
   }
 
-  playWav(pool) {
-    if (this.muted || !pool) return;
-    pool.play();
-  }
-
   // ONLY called from window touchend/click unlockAudio handler (a valid iOS gesture).
-  // Never call this from physics callbacks, RAF loops, or touchstart handlers.
   init() {
     this.initLog = "init_start ";
     if (typeof window === "undefined") {
       this.initLog += "window_undef ";
       return;
     }
-    
-    // Always pre-generate WAV synthesis fallback assets on first gesture
+
     this.cacheWavs();
-    
+
     if (this.ctx) {
       this.initLog += "ctx_already_exists ";
       return;
     }
+
     try {
       const AudioContextClass =
         (typeof window !== "undefined" && (window.AudioContext || window.webkitAudioContext)) ||
         (typeof globalThis !== "undefined" && (globalThis.AudioContext || globalThis.webkitAudioContext)) ||
         (typeof self !== "undefined" && (self.AudioContext || self.webkitAudioContext));
-      
+
       this.initLog += `class_type:${typeof AudioContextClass} `;
       if (!AudioContextClass) {
         this.initError = "No AudioContext class found";
         this.initLog += "class_not_found ";
         return;
       }
-      
+
       const instance = new AudioContextClass();
       this.initLog += `instantiated_ok(type:${typeof instance}) `;
       if (instance) {
         this.initLog += `instance_state:${instance.state} `;
         this.ctx = instance;
         this.initLog += `assigned_ctx_ok(has_ctx:${this.ctx ? "yes" : "no"}) `;
+
+        // Synchronously trigger decoding of pre-fetched ArrayBuffers
+        for (const [name, rawBuffer] of Object.entries(this.rawBuffers)) {
+          try {
+            const slice = rawBuffer.slice(0);
+            this.ctx.decodeAudioData(slice, (decoded) => {
+              this.buffers[name] = decoded;
+            }, (err) => {
+              console.warn(`Failed to decode ${name}:`, err);
+            });
+          } catch (e) {
+            console.warn(`Error triggering decoding for ${name}:`, e);
+          }
+        }
       } else {
         this.initLog += "instance_falsy ";
       }
@@ -196,188 +231,101 @@ class FissionAudio {
     }
   }
 
-  // Resumes a suspended/interrupted context. Does NOT create it.
   resumeCtx() {
     if (this.ctx && (this.ctx.state === "suspended" || this.ctx.state === "interrupted")) {
       this.ctx.resume().catch(e => console.warn("AudioContext resume failed:", e));
     }
   }
 
-  // --- Play methods ---
-  // All guards check: context must exist. We call resumeCtx() to ensure it wakes up,
-  // and schedule nodes immediately (they will queue and play once resumed).
+  // Load and play a sound buffer dynamically on-demand
+  async loadAndPlayOnDemand(name, url) {
+    try {
+      const response = await fetch(url);
+      const raw = await response.arrayBuffer();
+      if (!this.ctx) return;
+      this.ctx.decodeAudioData(raw, (decoded) => {
+        this.buffers[name] = decoded;
+        if (this.ctx) {
+          const source = this.ctx.createBufferSource();
+          source.buffer = decoded;
+          source.connect(this.ctx.destination);
+          source.start(0);
+        }
+      });
+    } catch (e) {
+      console.warn(`loadAndPlayOnDemand failed for ${name}:`, e);
+    }
+  }
+
+  // Master play routing helper
+  playSound(name, pool) {
+    if (this.muted) return;
+
+    if (this.ctx) {
+      if (this.ctx.state === "suspended" || this.ctx.state === "interrupted") {
+        this.resumeCtx();
+      }
+
+      const buffer = this.buffers[name];
+      if (buffer) {
+        try {
+          const source = this.ctx.createBufferSource();
+          source.buffer = buffer;
+          source.connect(this.ctx.destination);
+          source.start(0);
+          return;
+        } catch (e) {
+          console.warn(`Buffer play failed for ${name}:`, e);
+        }
+      } else if (this.rawBuffers[name]) {
+        // Decodes synchronously when available
+        try {
+          const slice = this.rawBuffers[name].slice(0);
+          this.ctx.decodeAudioData(slice, (decoded) => {
+            this.buffers[name] = decoded;
+            try {
+              const source = this.ctx.createBufferSource();
+              source.buffer = decoded;
+              source.connect(this.ctx.destination);
+              source.start(0);
+            } catch (inner) {}
+          });
+          return;
+        } catch (e) {}
+      } else {
+        this.loadAndPlayOnDemand(name, `/sounds/${name}.wav`);
+        return;
+      }
+    }
+
+    if (pool) {
+      pool.play();
+    }
+  }
 
   playShoot() {
     this.triggerHaptic(12);
-    if (this.muted) return;
-    if (!this.ctx || this.ctx.state !== "running") {
-      this.playWav(this.shootPool);
-      if (this.ctx) this.resumeCtx();
-      return;
-    }
-    try {
-      const t = this.ctx.currentTime;
-      const osc = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
-      osc.connect(gain);
-      gain.connect(this.ctx.destination);
-      osc.type = "sawtooth";
-      osc.frequency.setValueAtTime(360, t);
-      osc.frequency.linearRampToValueAtTime(45, t + 0.16);
-      gain.gain.setValueAtTime(0.08, t);
-      gain.gain.linearRampToValueAtTime(0, t + 0.16);
-      osc.start();
-      osc.stop(t + 0.16);
-    } catch (e) {
-      console.warn("playShoot failed:", e);
-      this.playWav(this.shootPool);
-    }
+    this.playSound("shoot", this.shootPool);
   }
 
   playHit() {
     this.triggerHaptic(28);
-    if (this.muted) return;
-    if (!this.ctx || this.ctx.state !== "running") {
-      this.playWav(this.hitPool);
-      if (this.ctx) this.resumeCtx();
-      return;
-    }
-    try {
-      const t = this.ctx.currentTime;
-      const osc = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
-      osc.connect(gain);
-      gain.connect(this.ctx.destination);
-      osc.type = "triangle";
-      osc.frequency.setValueAtTime(680, t);
-      osc.frequency.linearRampToValueAtTime(180, t + 0.14);
-      gain.gain.setValueAtTime(0.12, t);
-      gain.gain.linearRampToValueAtTime(0, t + 0.14);
-      osc.start();
-      osc.stop(t + 0.14);
-    } catch (e) {
-      console.warn("playHit failed:", e);
-      this.playWav(this.hitPool);
-    }
+    this.playSound("hit", this.hitPool);
   }
 
   playBounce() {
     this.triggerHaptic(5);
-    if (this.muted) return;
-    if (!this.ctx || this.ctx.state !== "running") {
-      this.playWav(this.bouncePool);
-      if (this.ctx) this.resumeCtx();
-      return;
-    }
-    try {
-      const t = this.ctx.currentTime;
-      const osc = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
-      osc.connect(gain);
-      gain.connect(this.ctx.destination);
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(1600, t);
-      gain.gain.setValueAtTime(0.04, t);
-      gain.gain.linearRampToValueAtTime(0, t + 0.04);
-      osc.start();
-      osc.stop(t + 0.04);
-    } catch (e) {
-      console.warn("playBounce failed:", e);
-      this.playWav(this.bouncePool);
-    }
+    this.playSound("bounce", this.bouncePool);
   }
 
   playFission() {
     this.triggerHaptic([60, 40, 100]);
-    if (this.muted) return;
-    if (!this.ctx || this.ctx.state !== "running") {
-      this.playWav(this.fissionPool);
-      if (this.ctx) this.resumeCtx();
-      return;
-    }
-    try {
-      const t = this.ctx.currentTime;
-
-      // Sub-bass boom
-      const osc = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(100, t);
-      osc.frequency.linearRampToValueAtTime(20, t + 0.45);
-      osc.connect(gain);
-      gain.connect(this.ctx.destination);
-      gain.gain.setValueAtTime(0.25, t);
-      gain.gain.linearRampToValueAtTime(0, t + 0.45);
-      osc.start();
-      osc.stop(t + 0.45);
-
-      // Noise crackle
-      const bufferSize = this.ctx.sampleRate * 0.35;
-      const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
-      const data = buffer.getChannelData(0);
-      for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
-
-      const noise = this.ctx.createBufferSource();
-      noise.buffer = buffer;
-
-      const filter = this.ctx.createBiquadFilter();
-      filter.type = "bandpass";
-      filter.frequency.setValueAtTime(800, t);
-      filter.frequency.linearRampToValueAtTime(150, t + 0.35);
-
-      const noiseGain = this.ctx.createGain();
-      noiseGain.gain.setValueAtTime(0.12, t);
-      noiseGain.gain.linearRampToValueAtTime(0, t + 0.35);
-
-      noise.connect(filter);
-      filter.connect(noiseGain);
-      noiseGain.connect(this.ctx.destination);
-
-      noise.start();
-      noise.stop(t + 0.35);
-    } catch (e) {
-      console.warn("playFission failed:", e);
-      this.playWav(this.fissionPool);
-    }
+    this.playSound("fission", this.fissionPool);
   }
 
   playRegister() {
     this.triggerHaptic(15);
-    if (this.muted) return;
-    if (!this.ctx || this.ctx.state !== "running") {
-      this.playWav(this.registerPool);
-      if (this.ctx) this.resumeCtx();
-      return;
-    }
-    try {
-      const t = this.ctx.currentTime;
-      const osc1 = this.ctx.createOscillator();
-      const osc2 = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
-
-      osc1.type = "sine";
-      osc1.frequency.setValueAtTime(987.77, t);
-      osc1.frequency.setValueAtTime(1318.51, t + 0.06);
-
-      osc2.type = "sine";
-      osc2.frequency.setValueAtTime(1174.66, t);
-      osc2.frequency.setValueAtTime(1567.98, t + 0.06);
-
-      gain.gain.setValueAtTime(0.08, t);
-      gain.gain.linearRampToValueAtTime(0, t + 0.2);
-
-      osc1.connect(gain);
-      osc2.connect(gain);
-      gain.connect(this.ctx.destination);
-
-      osc1.start();
-      osc1.stop(t + 0.22);
-      osc2.start();
-      osc2.stop(t + 0.22);
-    } catch (e) {
-      console.warn("playRegister failed:", e);
-      this.playWav(this.registerPool);
-    }
+    this.playSound("register", this.registerPool);
   }
 
   playBouncePeg()   { this.playBounce(); }

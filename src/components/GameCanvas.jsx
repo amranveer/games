@@ -166,6 +166,13 @@ export default function GameCanvas() {
   const flashIntensityRef = useRef(0);
   const mousePosRef = useRef({ x: 400, y: 0 });
 
+  // Prefetch audio assets on mount
+  useEffect(() => {
+    if (audioInstance.prefetchSounds) {
+      audioInstance.prefetchSounds();
+    }
+  }, []);
+
   // Initialize canvas size and trackResize
   useEffect(() => {
     const canvas = canvasRef.current;
