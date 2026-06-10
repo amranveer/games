@@ -38,7 +38,7 @@ export default function GameCanvas() {
     };
 
     // 3. Web Audio Unlocker for iOS Safari (resumes on first interaction)
-    const unlockAudio = () => {
+    const unlockAudio = async () => {
       // 3a. Force browser to play HTML5 audio (forces 'playback' audio session class, bypassing ring/silent switch mute)
       const silenceAudio = document.getElementById("silence-audio");
       if (silenceAudio) {
@@ -50,7 +50,7 @@ export default function GameCanvas() {
       }
 
       // 3b. Wake up and unlock AudioContext
-      audioInstance.resumeCtx();
+      await audioInstance.resumeCtx();
       if (audioInstance.ctx) {
         try {
           const buffer = audioInstance.ctx.createBuffer(1, 1, 22050);
@@ -63,6 +63,9 @@ export default function GameCanvas() {
           } else if (source.noteOn) {
             source.noteOn(0);
           }
+
+          // Trigger a premium, clean warm-up feedback click tone once successfully resumed
+          audioInstance.playRegister();
         } catch (e) {
           console.warn("Failed to play silent buffer node", e);
         }
@@ -178,8 +181,7 @@ export default function GameCanvas() {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    // Trigger audio context
-    audioInstance.init();
+    // Trigger audio playback
     audioInstance.playShoot();
 
     const rect = canvas.getBoundingClientRect();

@@ -9,6 +9,11 @@ class FissionAudio {
     if (typeof window === "undefined") return;
     if (this.ctx) return;
     try {
+      // Elevate audio session category to playback on iOS Safari to ignore silent switch
+      if (typeof navigator !== "undefined" && navigator.audioSession) {
+        navigator.audioSession.type = "playback";
+      }
+
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
       this.ctx = new AudioContextClass();
     } catch (e) {
@@ -43,17 +48,21 @@ class FissionAudio {
     }
   }
 
-  resumeCtx() {
+  async resumeCtx() {
     this.init();
     if (this.ctx && (this.ctx.state === "suspended" || this.ctx.state === "interrupted")) {
-      this.ctx.resume().catch(e => console.warn("Failed to resume AudioContext:", e));
+      try {
+        await this.ctx.resume();
+      } catch (e) {
+        console.warn("Failed to resume AudioContext:", e);
+      }
     }
   }
 
   playShoot() {
     this.triggerHaptic(12);
-    this.resumeCtx();
     if (!this.ctx || this.muted) return;
+    this.resumeCtx();
 
     try {
       const t = this.ctx.currentTime;
@@ -79,8 +88,8 @@ class FissionAudio {
 
   playHit() {
     this.triggerHaptic(28);
-    this.resumeCtx();
     if (!this.ctx || this.muted) return;
+    this.resumeCtx();
 
     try {
       const t = this.ctx.currentTime;
@@ -106,8 +115,8 @@ class FissionAudio {
 
   playBounce() {
     this.triggerHaptic(5);
-    this.resumeCtx();
     if (!this.ctx || this.muted) return;
+    this.resumeCtx();
 
     try {
       const t = this.ctx.currentTime;
@@ -131,8 +140,8 @@ class FissionAudio {
 
   playFission() {
     this.triggerHaptic([60, 40, 100]);
-    this.resumeCtx();
     if (!this.ctx || this.muted) return;
+    this.resumeCtx();
 
     try {
       const t = this.ctx.currentTime;
@@ -185,8 +194,8 @@ class FissionAudio {
   // Alchemical register / store click
   playRegister() {
     this.triggerHaptic(15);
-    this.resumeCtx();
     if (!this.ctx || this.muted) return;
+    this.resumeCtx();
 
     try {
       const t = this.ctx.currentTime;
