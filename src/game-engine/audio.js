@@ -70,6 +70,18 @@ class FissionAudio {
       }
 
       this.resumeCtx();
+
+      // Warm up the hardware audio graph with a silent 1-sample buffer play
+      try {
+        const warmupBuffer = this.ctx.createBuffer(1, 1, 22050);
+        const warmupSource = this.ctx.createBufferSource();
+        warmupSource.buffer = warmupBuffer;
+        warmupSource.connect(this.ctx.destination);
+        warmupSource.start(0);
+        this.initLog += "warmup_ok ";
+      } catch (e) {
+        this.initLog += `warmup_err:${e.message || e} `;
+      }
     } catch (e) {
       this.initError = e.message || String(e);
       this.initLog += `init_err:${this.initError} `;

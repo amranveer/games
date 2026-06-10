@@ -25,7 +25,7 @@ export default function GameCanvas() {
   // Set up iOS Safari Web Audio unlocker and game state
   const [audioStatus, setAudioStatus] = useState("LOCKED");
   const [audioDiagnostic, setAudioDiagnostic] = useState("await_gesture");
-  const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [showDiagnostics, setShowDiagnostics] = useState(true);
   const [gameStarted, setGameStarted] = useState(false);
   const unlockedRef = useRef(false);
 
@@ -456,11 +456,6 @@ export default function GameCanvas() {
       />
       {!gameStarted && (
         <div
-          onClick={(e) => {
-            unlockAudio();
-            setGameStarted(true);
-            e.stopPropagation();
-          }}
           style={{
             position: "absolute",
             top: 0,
@@ -473,8 +468,7 @@ export default function GameCanvas() {
             flexDirection: "column",
             alignItems: "center",
             justifyContent: "center",
-            zIndex: 100,
-            cursor: "pointer"
+            zIndex: 100
           }}
         >
           <div
@@ -515,6 +509,11 @@ export default function GameCanvas() {
             </p>
             
             <button
+              onClick={(e) => {
+                unlockAudio();
+                setGameStarted(true);
+                e.stopPropagation();
+              }}
               style={{
                 background: "linear-gradient(135deg, #ff007f 0%, #7928ca 100%)",
                 border: "none",
