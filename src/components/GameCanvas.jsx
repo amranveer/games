@@ -71,22 +71,16 @@ export default function GameCanvas() {
       // 3c. Remove all unlock listeners after the first interaction
       window.removeEventListener("click", unlockAudio);
       window.removeEventListener("touchend", unlockAudio);
-      window.removeEventListener("mousedown", unlockAudio);
-      window.removeEventListener("touchstart", unlockAudio);
     };
 
-    // Active (non-passive) listeners are REQUIRED on iOS to allow media play and AudioContext resume
+    // Active (non-passive) click & touchend are the ONLY valid iOS user gestures to resume AudioContext
     window.addEventListener("click", unlockAudio, { passive: false });
     window.addEventListener("touchend", unlockAudio, { passive: false });
-    window.addEventListener("mousedown", unlockAudio, { passive: false });
-    window.addEventListener("touchstart", unlockAudio, { passive: false });
 
     return () => {
       audioInstance.iosHapticCallback = null;
       window.removeEventListener("click", unlockAudio);
       window.removeEventListener("touchend", unlockAudio);
-      window.removeEventListener("mousedown", unlockAudio);
-      window.removeEventListener("touchstart", unlockAudio);
     };
   }, []);
 
