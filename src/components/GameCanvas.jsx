@@ -17,6 +17,7 @@ import {
 } from "../game-engine/renderer";
 import audioInstance from "../game-engine/audio";
 import SoundToggle from "./SoundToggle";
+import { WAV_ASSETS } from "../game-engine/sound-assets";
 
 export default function GameCanvas() {
   const canvasRef = useRef(null);
@@ -279,10 +280,9 @@ export default function GameCanvas() {
     // Render all active atoms in depth-sorted 3D
     atomsRef.current.forEach(atom => {
       atom.electrons.forEach(el => {
-        const trail = el.trail ? [...el.trail] : [];
-        trail.push({ x: el.x3d, y: el.y3d, z: el.z3d });
-        if (trail.length > 60) trail.shift();
-        el.trail = trail;
+        if (!el.trail) el.trail = [];
+        el.trail.push({ x: el.x3d, y: el.y3d, z: el.z3d });
+        if (el.trail.length > 20) el.trail.shift();
       });
 
       draw3DAtom(
@@ -544,6 +544,24 @@ export default function GameCanvas() {
         }}
       >
         SYS DIAG: {audioDiagnostic} | INIT_LOG: {audioInstance.initLog || "none"}
+      </div>
+      {/* Statically declared hidden Audio elements for zero-lag iOS playback */}
+      <div style={{ display: "none" }} id="game-audio-elements">
+        {Object.entries(WAV_ASSETS).map(([name, base64]) => {
+          const poolSize = name === "bounce" ? 6 : (name === "hit" ? 4 : (name === "shoot" ? 3 : 2));
+          const audios = [];
+          for (let i = 0; i < poolSize; i++) {
+            audios.push(
+              <audio
+                key={`${name}-${i}`}
+                id={`audio-${name}-${i}`}
+                src={base64}
+                preload="auto"
+              />
+            );
+          }
+          return audios;
+        })}
       </div>
     </div>
   );
