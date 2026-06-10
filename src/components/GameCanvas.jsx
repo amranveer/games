@@ -19,95 +19,30 @@ import audioInstance from "../game-engine/audio";
 import SoundToggle from "./SoundToggle";
 
 export default function GameCanvas() {
-  const iosHapticInputRef = useRef(null);
   const canvasRef = useRef(null);
   const requestRef = useRef(null);
 
-  // Set up iOS Safari Web Audio unlocker and hidden Switch haptics
+  // Set up iOS Safari Web Audio unlocker and game state
   const [audioStatus, setAudioStatus] = useState("LOCKED");
   const [audioDiagnostic, setAudioDiagnostic] = useState("await_gesture");
   const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [gameStarted, setGameStarted] = useState(false);
   const unlockedRef = useRef(false);
 
-  // Audio unlock — fires on first valid iOS gesture (touchend or click).
-  // Correct order: audioSession → silent HTML5 audio → init() → resume → warmup buffer.
-  // Must be 100% synchronous — any await breaks the iOS user gesture chain.
+  // Audio unlock — fires synchronously when the user clicks the "START" overlay button
   const unlockAudio = useCallback(() => {
     if (unlockedRef.current) return;
     unlockedRef.current = true;
-    let log = "start ";
-    try {
-      // Step 1: Elevate audio session BEFORE creating the AudioContext.
-      if (typeof navigator !== "undefined" && navigator.audioSession) {
-        try {
-          navigator.audioSession.type = "playback";
-          log += "session_playback ";
-        } catch (e) {
-          log += `session_err:${e.message || e} `;
-        }
-      } else {
-        log += "no_session_api ";
-      }
 
-      // Step 2: Play a looping silent HTML5 <audio> tag.
-      const silenceAudio = document.getElementById("silence-audio");
-      if (silenceAudio) {
-        log += "found_silence_tag ";
-        try {
-          const p = silenceAudio.play();
-          if (p && typeof p.then === "function") {
-            p.then(() => { log += "play_ok "; })
-             .catch(e => { log += `play_err:${e.message || e} `; });
-          } else {
-            log += "play_sync_ok ";
-          }
-        } catch (e) {
-          log += `play_err:${e.message || e} `;
-        }
-      } else {
-        log += "no_silence_tag ";
-      }
-
-      // Step 3: Create the AudioContext — now inside a valid touchend/click call stack.
-      log += `keys:${Object.keys(audioInstance).join(",")} type_init:${typeof audioInstance.init} has_ctx:${audioInstance.ctx !== undefined ? (audioInstance.ctx ? "yes" : "falsy") : "no"} calling_init `;
-      audioInstance.init();
-
-      if (audioInstance.ctx) {
-        log += `ctx_ok(state:${audioInstance.ctx.state}) `;
-      } else {
-        log += `ctx_null(err:${audioInstance.initError || "none"}) `;
-      }
-
-      // Step 4: Unlock the HTML5 Audio pools for fallback playback.
-      log += "unlocking_pools ";
-      audioInstance.unlockPools();
-
-      // Step 5: Resume the context if suspended or interrupted.
-      log += "calling_resume ";
-      audioInstance.resumeCtx();
-
-      // Step 6: Play a 1-sample silent buffer to prime the hardware audio graph.
-      if (audioInstance.ctx) {
-        try {
-          const warmupBuffer = audioInstance.ctx.createBuffer(1, 1, 22050);
-          const warmupSource = audioInstance.ctx.createBufferSource();
-          warmupSource.buffer = warmupBuffer;
-          warmupSource.connect(audioInstance.ctx.destination);
-          warmupSource.start(0);
-          log += "warmup_started ";
-        } catch (e) {
-          log += `warmup_err:${e.message || e} `;
-        }
-      }
-    } catch (err) {
-      log += `global_err:${err.message || err} `;
+    // Elevate audio session category if API exists
+    if (typeof navigator !== "undefined" && navigator.audioSession) {
+      try {
+        navigator.audioSession.type = "playback";
+      } catch (e) {}
     }
 
-    setAudioDiagnostic(log);
-
-    // Step 6: Remove listeners — only one unlock needed per session.
-    window.removeEventListener("click", unlockAudio);
-    window.removeEventListener("touchend", unlockAudio);
+    audioInstance.init();
+    setAudioDiagnostic(audioInstance.initLog || "initialized");
   }, []);
 
   // Poll state of the context to update HUD dynamically
@@ -117,8 +52,6 @@ export default function GameCanvas() {
         setAudioStatus("MUTED");
       } else if (audioInstance.ctx) {
         setAudioStatus(audioInstance.ctx.state.toUpperCase());
-      } else if (audioInstance.fallbackUnlocked) {
-        setAudioStatus("RUNNING (FALLBACK)");
       } else {
         setAudioStatus("LOCKED");
       }
@@ -127,31 +60,6 @@ export default function GameCanvas() {
     const interval = setInterval(checkStatus, 300);
     return () => clearInterval(interval);
   }, []);
-
-  // Set up iOS Safari Web Audio unlocker and hidden Switch haptics
-  useEffect(() => {
-    // 1. Add switch attribute to input ref to enable Safari system haptics
-    if (iosHapticInputRef.current) {
-      iosHapticInputRef.current.setAttribute("switch", "");
-    }
-
-    // 2. Wire up audioInstance.iosHapticCallback to programmatically toggle the switch
-    audioInstance.iosHapticCallback = (pattern) => {
-      const label = document.getElementById("haptic-trigger");
-      if (label) { label.click(); }
-    };
-
-    // touchend and click are the ONLY gestures iOS Safari accepts for AudioContext creation.
-    // passive: false ensures the handler can call preventDefault if needed.
-    window.addEventListener("touchend", unlockAudio, { passive: false });
-    window.addEventListener("click", unlockAudio, { passive: false });
-
-    return () => {
-      audioInstance.iosHapticCallback = null;
-      window.removeEventListener("touchend", unlockAudio);
-      window.removeEventListener("click", unlockAudio);
-    };
-  }, [unlockAudio]);
 
   // Responsive canvas dimensions
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
@@ -546,18 +454,99 @@ export default function GameCanvas() {
           cursor: "crosshair"
         }}
       />
-       {/* Hidden iOS Safari haptic toggle elements */}
-      <input
-        ref={iosHapticInputRef}
-        type="checkbox"
-        id="haptic-switch"
-        style={{ display: "none" }}
-      />
-      <label
-        id="haptic-trigger"
-        htmlFor="haptic-switch"
-        style={{ display: "none" }}
-      />
+      {!gameStarted && (
+        <div
+          onClick={(e) => {
+            unlockAudio();
+            setGameStarted(true);
+            e.stopPropagation();
+          }}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: "100%",
+            height: "100%",
+            backgroundColor: "rgba(15, 23, 42, 0.85)",
+            backdropFilter: "blur(12px)",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 100,
+            cursor: "pointer"
+          }}
+        >
+          <div
+            style={{
+              textAlign: "center",
+              padding: "40px",
+              borderRadius: "24px",
+              border: "1px solid rgba(255, 255, 255, 0.08)",
+              background: "radial-gradient(circle at center, rgba(30, 41, 59, 0.6) 0%, rgba(15, 23, 42, 0.8) 100%)",
+              boxShadow: "0 20px 50px rgba(0, 0, 0, 0.5), 0 0 40px rgba(255, 0, 127, 0.05)",
+              maxWidth: "90%",
+              width: "400px"
+            }}
+          >
+            <h1
+              style={{
+                fontSize: "1.8rem",
+                fontWeight: "bold",
+                color: "#ffffff",
+                letterSpacing: "4px",
+                margin: "0 0 10px 0",
+                fontFamily: "monospace",
+                textShadow: "0 0 20px rgba(255, 255, 255, 0.2)"
+              }}
+            >
+              NEON PLINKO
+            </h1>
+            <p
+              style={{
+                fontSize: "0.85rem",
+                color: "#94a3b8",
+                letterSpacing: "2px",
+                marginBottom: "30px",
+                fontFamily: "monospace"
+              }}
+            >
+              CASCADE LATTICE
+            </p>
+            
+            <button
+              style={{
+                background: "linear-gradient(135deg, #ff007f 0%, #7928ca 100%)",
+                border: "none",
+                borderRadius: "12px",
+                color: "#ffffff",
+                fontSize: "0.95rem",
+                fontWeight: "bold",
+                letterSpacing: "2px",
+                padding: "16px 32px",
+                cursor: "pointer",
+                fontFamily: "monospace",
+                boxShadow: "0 0 20px rgba(255, 0, 127, 0.4)",
+                transition: "all 0.3s ease"
+              }}
+            >
+              TAP TO LAUNCH
+            </button>
+            
+            <p
+              style={{
+                fontSize: "0.7rem",
+                color: "#64748b",
+                marginTop: "25px",
+                fontFamily: "monospace",
+                lineHeight: "1.4"
+              }}
+            >
+              Ensure your physical Ring/Silent switch is set to RING mode for audio.
+            </p>
+          </div>
+        </div>
+      )}
       {/* Telemetry Debug Log Console */}
       {showDiagnostics && (
         <div
@@ -581,20 +570,6 @@ export default function GameCanvas() {
           SYS DIAG: {audioDiagnostic} | INIT_LOG: {audioInstance.initLog || "none"} | ERRORS: {typeof window !== "undefined" && window.__audio_errors ? window.__audio_errors.slice(-3).join(",") : "none"}
         </div>
       )}
-      {/* Silent HTML5 audio tag to force audio session output category (bypasses phone silent ring switch) */}
-      <audio
-        id="silence-audio"
-        loop
-        playsInline
-        src="data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAAA"
-        style={{
-          position: "absolute",
-          width: "1px",
-          height: "1px",
-          opacity: 0.01,
-          pointerEvents: "none"
-        }}
-      />
     </div>
   );
 }
