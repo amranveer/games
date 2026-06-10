@@ -1,3 +1,5 @@
+import audioInstance from "./audio";
+
 // 3D Perspective Projection Matrix
 export function project3D(x, y, z, yaw, pitch, cx, cy, fov = 650) {
   // Rotate Y
@@ -92,13 +94,17 @@ export function createAtom(x, y, sizeTier) {
     hitX: 0,
     hitY: 0,
     maxHits,
-    hitsLeft: maxHits
+    hitsLeft: maxHits,
+    wobbleAmp: 0,
+    wobblePhase: 0,
+    wobbleAngle: 0
   };
 }
 
 // Update all active floating atoms, boundary limits, and orbital electron rings
 export function updateGameAtoms(atoms, width, height, time) {
   const timeSec = time * 0.001;
+  const localSparks = [];
 
   atoms.forEach(atom => {
     // Jitter shake coordinates if unstable
@@ -121,6 +127,34 @@ export function updateGameAtoms(atoms, width, height, time) {
     } else {
       atom.shakeX = 0;
       atom.shakeY = 0;
+    }
+
+    // Update liquid drop wobble decay
+    if (atom.wobbleAmp > 0) {
+      atom.wobblePhase += 0.45;
+      atom.wobbleAmp *= 0.88; // dampening
+      if (atom.wobbleAmp < 0.01) {
+        atom.wobbleAmp = 0;
+      }
+    }
+
+    // Spawn subatomic excitement evaporation sparks
+    if (atom.hitsLeft < atom.maxHits && !atom.unstable) {
+      const excitement = (atom.maxHits - atom.hitsLeft) / atom.maxHits;
+      if (Math.random() < excitement * 0.18) {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = Math.random() * atom.nucleusRadius;
+        localSparks.push({
+          x: atom.x + Math.cos(angle) * dist,
+          y: atom.y + Math.sin(angle) * dist,
+          vx: atom.vx + (Math.random() - 0.5) * 0.8,
+          vy: atom.vy + (Math.random() - 0.5) * 0.8,
+          color: Math.random() > 0.5 ? "#00f2fe" : "#ff007f",
+          life: 0.8,
+          decay: 0.035,
+          radius: 0.8 + Math.random() * 1.2
+        });
+      }
     }
 
     // Update dissolving rings
@@ -247,6 +281,7 @@ export function updateGameAtoms(atoms, width, height, time) {
       }
     }
   }
+  return localSparks;
 }
 
 // Update high-energy heavy projectile positions and coordinate trails
@@ -304,6 +339,7 @@ export function checkFissionCollisions(atoms, projectiles, onFission) {
       if (dist < atom.nucleusRadius + 6) {
         // Secondary neutrons have an 88% chance to deflect/bounce instead of causing stability damage
         if (p.isNeutron && Math.random() > 0.12) {
+          audioInstance.playBounce();
           const nx = dx / (dist || 1);
           const ny = dy / (dist || 1);
           
@@ -343,6 +379,12 @@ export function checkFissionCollisions(atoms, projectiles, onFission) {
 
         // Decrement hit counter
         atom.hitsLeft--;
+        audioInstance.playHit();
+
+        // Set wobble impact distortion
+        atom.wobbleAmp = 0.35;
+        atom.wobbleAngle = Math.atan2(p.vy, p.vx);
+        atom.wobblePhase = 0;
 
         // Electron Ejection & Orbit Dissolution
         if (!atom.dissolvingRings) atom.dissolvingRings = [];
@@ -423,6 +465,7 @@ export function checkFissionCollisions(atoms, projectiles, onFission) {
   // 2. Process unstable atoms that have finished charging (shouldSplit = true)
   const explodingAtoms = nextAtoms.filter(a => a.shouldSplit);
   explodingAtoms.forEach(atom => {
+    audioInstance.playFission();
     // Remove from the active atoms list
     nextAtoms = nextAtoms.filter(a => a.id !== atom.id);
 

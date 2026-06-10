@@ -201,7 +201,7 @@ function drawSingleNucleusCluster(ctx, cx, cy, rad, cameraYaw, cameraPitch, time
 }
 
 // Render the single unified nucleus sphere or a splitting double-lobe mitosis during instability
-function renderNucleusCore(ctx, projX, projY, scale, nucleusRadius, cameraYaw, cameraPitch, time, isUnstable, unstableFrames = 0, impactVx = 0, impactVy = 0, hitsLeft = 1, maxHits = 1) {
+function renderNucleusCore(ctx, projX, projY, scale, nucleusRadius, cameraYaw, cameraPitch, time, isUnstable, unstableFrames = 0, impactVx = 0, impactVy = 0, hitsLeft = 1, maxHits = 1, wobbleAmp = 0, wobbleAngle = 0, wobblePhase = 0) {
   ctx.save();
   ctx.translate(projX, projY);
   ctx.shadowBlur = 0;
@@ -234,28 +234,43 @@ function renderNucleusCore(ctx, projX, projY, scale, nucleusRadius, cameraYaw, c
         // 1. Draw connecting plasma neck (electric bridge)
         const neckWidth = lobeRad * (1.0 - t) * 0.95;
         if (neckWidth > 0.5) {
+          // Draw a background plasma envelope glow
+          ctx.save();
           ctx.beginPath();
           ctx.moveTo(dx1, dy1);
           ctx.lineTo(dx2, dy2);
+          ctx.lineWidth = neckWidth * 2.2;
           ctx.lineCap = "round";
-          ctx.lineWidth = neckWidth * 2;
           
-          // Glowing electric gradient between cyan & magenta
           const neckGrad = ctx.createLinearGradient(dx1, dy1, dx2, dy2);
           neckGrad.addColorStop(0, "#00f2fe");
-          neckGrad.addColorStop(0.5, "#ffffff");
+          neckGrad.addColorStop(0.5, "rgba(255, 255, 255, 0.85)");
           neckGrad.addColorStop(1, "#ff007f");
-          
           ctx.strokeStyle = neckGrad;
           ctx.stroke();
+          ctx.restore();
 
-          // Core hot filament
-          ctx.beginPath();
-          ctx.moveTo(dx1, dy1);
-          ctx.lineTo(dx2, dy2);
-          ctx.lineWidth = neckWidth * 0.6;
+          // Draw crackling lightning arcs
+          const segments = 6;
+          const dev = neckWidth * 0.45;
+
+          // Cyan crackle
+          ctx.save();
+          ctx.lineCap = "round";
+          ctx.lineJoin = "round";
+          ctx.lineWidth = neckWidth * 0.75;
+          ctx.strokeStyle = "#00f2fe";
+          drawLightningArc(ctx, dx1, dy1, dx2, dy2, segments, dev);
+          ctx.restore();
+
+          // Inner white hot core filament crackle
+          ctx.save();
+          ctx.lineCap = "round";
+          ctx.lineJoin = "round";
+          ctx.lineWidth = neckWidth * 0.35;
           ctx.strokeStyle = "#ffffff";
-          ctx.stroke();
+          drawLightningArc(ctx, dx1, dy1, dx2, dy2, segments, dev * 0.7);
+          ctx.restore();
         }
 
         // 2. Draw both splitting lobes as individual 3D nucleon clusters
@@ -263,12 +278,47 @@ function renderNucleusCore(ctx, projX, projY, scale, nucleusRadius, cameraYaw, c
         drawSingleNucleusCluster(ctx, dx2, dy2, lobeRad, cameraYaw, cameraPitch, time, true, t, 0, 1);
       }
     } else {
-      // Standard stable 3D nucleon cluster nucleus
+      // Standard stable 3D nucleon cluster nucleus (with liquid drop wobble deformation)
+      const hasWobble = wobbleAmp > 0;
+      if (hasWobble) {
+        const stretch = 1.0 + wobbleAmp * Math.sin(wobblePhase);
+        const squish = 1.0 / stretch;
+        ctx.save();
+        ctx.rotate(wobbleAngle);
+        ctx.scale(stretch, squish);
+        ctx.rotate(-wobbleAngle); // unrotate to keep internal coords projected relative to camera yaw/pitch
+      }
+
       drawSingleNucleusCluster(ctx, 0, 0, rad, cameraYaw, cameraPitch, time, false, 0, hitsLeft, maxHits);
+
+      if (hasWobble) {
+        ctx.restore();
+      }
     }
   }
 
   ctx.restore();
+}
+
+function drawLightningArc(ctx, x1, y1, x2, y2, segments, dev) {
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+  const px = -dy / dist;
+  const py = dx / dist;
+
+  for (let i = 1; i < segments; i++) {
+    const t = i / segments;
+    const cx = x1 + dx * t;
+    const cy = y1 + dy * t;
+    const envelope = Math.sin(t * Math.PI);
+    const offset = (Math.random() - 0.5) * dev * envelope * 2.0;
+    ctx.lineTo(cx + px * offset, cy + py * offset);
+  }
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
 }
 
 // Render a single electron with its 3D projected trail
@@ -378,7 +428,7 @@ function applyOrbitRotation(x, y, z, yaw, pitch, roll) {
 }
 
 // Unified 3D depth-sorted rendering call (painter's algorithm)
-export function draw3DAtom(ctx, center, electrons, cameraYaw, cameraPitch, nucleusRadius, time, isUnstable, unstableFrames = 0, impactVx = 0, impactVy = 0, hitsLeft = 1, maxHits = 1, dissolvingRings = []) {
+export function draw3DAtom(ctx, center, electrons, cameraYaw, cameraPitch, nucleusRadius, time, isUnstable, unstableFrames = 0, impactVx = 0, impactVy = 0, hitsLeft = 1, maxHits = 1, dissolvingRings = [], wobbleAmp = 0, wobbleAngle = 0, wobblePhase = 0) {
   // Draw the active 3D orbital shell rings first (behind/below particles for layering)
   if (!isUnstable) {
     electrons.forEach((el, idx) => {
@@ -418,7 +468,10 @@ export function draw3DAtom(ctx, center, electrons, cameraYaw, cameraPitch, nucle
     impactVx,
     impactVy,
     hitsLeft,
-    maxHits
+    maxHits,
+    wobbleAmp,
+    wobbleAngle,
+    wobblePhase
   });
 
   const colors = ["#ffb3ba", "#ffdfba", "#baffc9", "#bae1ff", "#e8c4ff", "#ffc6ff"];
@@ -463,7 +516,10 @@ export function draw3DAtom(ctx, center, electrons, cameraYaw, cameraPitch, nucle
         node.impactVx,
         node.impactVy,
         node.hitsLeft,
-        node.maxHits
+        node.maxHits,
+        node.wobbleAmp,
+        node.wobbleAngle,
+        node.wobblePhase
       );
     } else {
       renderElectronNode(ctx, node, cameraYaw, cameraPitch, center);

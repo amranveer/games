@@ -106,6 +106,7 @@ export default function GameCanvas() {
 
     // Trigger audio context
     audioInstance.init();
+    audioInstance.playShoot();
 
     const rect = canvas.getBoundingClientRect();
     const targetX = clientX - rect.left;
@@ -178,8 +179,10 @@ export default function GameCanvas() {
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
 
-    // 1. Update velocities and coordinate positions
-    updateGameAtoms(atomsRef.current, dimensions.width, dimensions.height, timestamp);
+    const evapSparks = updateGameAtoms(atomsRef.current, dimensions.width, dimensions.height, timestamp);
+    if (evapSparks && evapSparks.length > 0) {
+      sparksRef.current.push(...evapSparks);
+    }
     projectilesRef.current = updateProjectiles(projectilesRef.current, dimensions.width, dimensions.height);
     sparksRef.current = updateSparks(sparksRef.current);
 
@@ -234,7 +237,11 @@ export default function GameCanvas() {
         atom.impactVx,
         atom.impactVy,
         atom.hitsLeft,
-        atom.maxHits
+        atom.maxHits,
+        atom.dissolvingRings || [],
+        atom.wobbleAmp || 0,
+        atom.wobbleAngle || 0,
+        atom.wobblePhase || 0
       );
     });
 
