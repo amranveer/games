@@ -59,6 +59,8 @@ export default function GameCanvas() {
     const checkStatus = () => {
       if (audioInstance.muted) {
         setAudioStatus("MUTED");
+      } else if (audioInstance.useHTML5) {
+        setAudioStatus("RUNNING (HTML5)");
       } else if (audioInstance.ctx) {
         setAudioStatus(audioInstance.ctx.state.toUpperCase());
       } else {
@@ -466,11 +468,11 @@ export default function GameCanvas() {
           </div>
           <div>
             AUDIO <span style={{
-              color: audioStatus === "RUNNING" ? "#39ff14" : audioStatus === "MUTED" ? "#707080" : "#ff007f",
+              color: audioStatus.startsWith("RUNNING") ? "#39ff14" : audioStatus === "MUTED" ? "#707080" : "#ff007f",
               fontWeight: "bold",
               fontSize: "1.01rem",
               marginLeft: "6px",
-              textShadow: audioStatus === "RUNNING" ? "0 0 10px rgba(57,255,20,0.3)" : "none"
+              textShadow: audioStatus.startsWith("RUNNING") ? "0 0 10px rgba(57,255,20,0.3)" : "none"
             }}>{audioStatus}</span>
           </div>
         </div>
