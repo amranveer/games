@@ -32,58 +32,63 @@ export default function GameCanvas() {
     // 2. Wire up audioInstance.iosHapticCallback to programmatically toggle the switch
     audioInstance.iosHapticCallback = (pattern) => {
       const label = document.getElementById("haptic-trigger");
-      if (label) {
-        label.click();
-      }
+      if (label) { label.click(); }
     };
 
-    // 3. Web Audio Unlocker for iOS Safari (resumes on first interaction)
-    const unlockAudio = async () => {
-      // 3a. Force browser to play HTML5 audio (forces 'playback' audio session class, bypassing ring/silent switch mute)
-      const silenceAudio = document.getElementById("silence-audio");
-      if (silenceAudio) {
-        silenceAudio.play().then(() => {
-          console.log("Audio session unlocked on iOS");
-        }).catch(e => {
-          console.warn("Silent audio tag play failed", e);
-        });
+    // 3. Audio unlock — fires on first valid iOS gesture (touchend or click).
+    //    Correct order: audioSession → silent HTML5 audio → init() → resume → warmup buffer.
+    //    Must be 100% synchronous — any await breaks the iOS user gesture chain.
+    const unlockAudio = () => {
+      // Step 1: Elevate audio session BEFORE creating the AudioContext.
+      // This makes iOS route audio through the Playback category (ignores silent switch).
+      // Available on iOS Safari 16.4+.
+      if (typeof navigator !== "undefined" && navigator.audioSession) {
+        try { navigator.audioSession.type = "playback"; } catch (e) {}
       }
 
-      // 3b. Wake up and unlock AudioContext
-      await audioInstance.resumeCtx();
+      // Step 2: Play a looping silent HTML5 <audio> tag.
+      // On iOS ≤16.3 (no audioSession API), this "kick" elevates the audio session category
+      // to Playback for all subsequent Web Audio API output.
+      const silenceAudio = document.getElementById("silence-audio");
+      if (silenceAudio) {
+        silenceAudio.play().catch(e => console.warn("Silent audio play failed:", e));
+      }
+
+      // Step 3: Create the AudioContext — now inside a valid touchend/click call stack.
+      // This is the ONLY place init() is called. Never from touchstart or RAF loops.
+      audioInstance.init();
+
+      // Step 4: Resume the context if suspended or interrupted.
+      audioInstance.resumeCtx();
+
+      // Step 5: Play a 1-sample silent buffer to prime the hardware audio graph.
+      // This "warms up" the pipeline so real sounds play immediately without a gap.
       if (audioInstance.ctx) {
         try {
-          const buffer = audioInstance.ctx.createBuffer(1, 1, 22050);
-          const source = audioInstance.ctx.createBufferSource();
-          source.buffer = buffer;
-          source.connect(audioInstance.ctx.destination);
-          
-          if (source.start) {
-            source.start(0);
-          } else if (source.noteOn) {
-            source.noteOn(0);
-          }
-
-          // Trigger a premium, clean warm-up feedback click tone once successfully resumed
-          audioInstance.playRegister();
+          const warmupBuffer = audioInstance.ctx.createBuffer(1, 1, 22050);
+          const warmupSource = audioInstance.ctx.createBufferSource();
+          warmupSource.buffer = warmupBuffer;
+          warmupSource.connect(audioInstance.ctx.destination);
+          warmupSource.start(0);
         } catch (e) {
-          console.warn("Failed to play silent buffer node", e);
+          console.warn("Warmup buffer failed:", e);
         }
       }
 
-      // 3c. Remove all unlock listeners after the first interaction
+      // Step 6: Remove listeners — only one unlock needed per session.
       window.removeEventListener("click", unlockAudio);
       window.removeEventListener("touchend", unlockAudio);
     };
 
-    // Active (non-passive) click & touchend are the ONLY valid iOS user gestures to resume AudioContext
-    window.addEventListener("click", unlockAudio, { passive: false });
+    // touchend and click are the ONLY gestures iOS Safari accepts for AudioContext creation.
+    // passive: false ensures the handler can call preventDefault if needed.
     window.addEventListener("touchend", unlockAudio, { passive: false });
+    window.addEventListener("click", unlockAudio, { passive: false });
 
     return () => {
       audioInstance.iosHapticCallback = null;
-      window.removeEventListener("click", unlockAudio);
       window.removeEventListener("touchend", unlockAudio);
+      window.removeEventListener("click", unlockAudio);
     };
   }, []);
 
