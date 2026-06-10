@@ -25,46 +25,69 @@ export default function GameCanvas() {
 
   // Set up iOS Safari Web Audio unlocker and hidden Switch haptics
   const [audioStatus, setAudioStatus] = useState("LOCKED");
+  const [audioDiagnostic, setAudioDiagnostic] = useState("await_gesture");
 
   // Audio unlock — fires on first valid iOS gesture (touchend or click).
   // Correct order: audioSession → silent HTML5 audio → init() → resume → warmup buffer.
   // Must be 100% synchronous — any await breaks the iOS user gesture chain.
   const unlockAudio = useCallback(() => {
-    // Step 1: Elevate audio session BEFORE creating the AudioContext.
-    // This makes iOS route audio through the Playback category (ignores silent switch).
-    // Available on iOS Safari 16.4+.
-    if (typeof navigator !== "undefined" && navigator.audioSession) {
-      try { navigator.audioSession.type = "playback"; } catch (e) {}
-    }
-
-    // Step 2: Play a looping silent HTML5 <audio> tag.
-    // On iOS ≤16.3 (no audioSession API), this "kick" elevates the audio session category
-    // to Playback for all subsequent Web Audio API output.
-    const silenceAudio = document.getElementById("silence-audio");
-    if (silenceAudio) {
-      silenceAudio.play().catch(e => console.warn("Silent audio play failed:", e));
-    }
-
-    // Step 3: Create the AudioContext — now inside a valid touchend/click call stack.
-    // This is the ONLY place init() is called. Never from touchstart or RAF loops.
-    audioInstance.init();
-
-    // Step 4: Resume the context if suspended or interrupted.
-    audioInstance.resumeCtx();
-
-    // Step 5: Play a 1-sample silent buffer to prime the hardware audio graph.
-    // This "warms up" the pipeline so real sounds play immediately without a gap.
-    if (audioInstance.ctx) {
-      try {
-        const warmupBuffer = audioInstance.ctx.createBuffer(1, 1, 22050);
-        const warmupSource = audioInstance.ctx.createBufferSource();
-        warmupSource.buffer = warmupBuffer;
-        warmupSource.connect(audioInstance.ctx.destination);
-        warmupSource.start(0);
-      } catch (e) {
-        console.warn("Warmup buffer failed:", e);
+    let log = "start ";
+    try {
+      // Step 1: Elevate audio session BEFORE creating the AudioContext.
+      if (typeof navigator !== "undefined" && navigator.audioSession) {
+        try {
+          navigator.audioSession.type = "playback";
+          log += "session_playback ";
+        } catch (e) {
+          log += `session_err:${e.message || e} `;
+        }
+      } else {
+        log += "no_session_api ";
       }
+
+      // Step 2: Play a looping silent HTML5 <audio> tag.
+      const silenceAudio = document.getElementById("silence-audio");
+      if (silenceAudio) {
+        log += "found_silence_tag ";
+        silenceAudio.play()
+          .then(() => { log += "play_ok "; })
+          .catch(e => { log += `play_err:${e.message || e} `; });
+      } else {
+        log += "no_silence_tag ";
+      }
+
+      // Step 3: Create the AudioContext — now inside a valid touchend/click call stack.
+      log += "calling_init ";
+      audioInstance.init();
+
+      if (audioInstance.ctx) {
+        log += `ctx_ok(state:${audioInstance.ctx.state}) `;
+      } else {
+        log += `ctx_null(err:${audioInstance.initError || "none"}) `;
+      }
+
+      // Step 4: Resume the context if suspended or interrupted.
+      log += "calling_resume ";
+      audioInstance.resumeCtx();
+
+      // Step 5: Play a 1-sample silent buffer to prime the hardware audio graph.
+      if (audioInstance.ctx) {
+        try {
+          const warmupBuffer = audioInstance.ctx.createBuffer(1, 1, 22050);
+          const warmupSource = audioInstance.ctx.createBufferSource();
+          warmupSource.buffer = warmupBuffer;
+          warmupSource.connect(audioInstance.ctx.destination);
+          warmupSource.start(0);
+          log += "warmup_started ";
+        } catch (e) {
+          log += `warmup_err:${e.message || e} `;
+        }
+      }
+    } catch (err) {
+      log += `global_err:${err.message || err} `;
     }
+
+    setAudioDiagnostic(log);
 
     // Step 6: Remove listeners — only one unlock needed per session.
     window.removeEventListener("click", unlockAudio);
@@ -474,7 +497,7 @@ export default function GameCanvas() {
           cursor: "crosshair"
         }}
       />
-      {/* Hidden iOS Safari haptic toggle elements */}
+       {/* Hidden iOS Safari haptic toggle elements */}
       <input
         ref={iosHapticInputRef}
         type="checkbox"
@@ -486,6 +509,27 @@ export default function GameCanvas() {
         htmlFor="haptic-switch"
         style={{ display: "none" }}
       />
+      {/* Telemetry Debug Log Console */}
+      <div
+        style={{
+          position: "absolute",
+          bottom: "16px",
+          left: "16px",
+          pointerEvents: "none",
+          zIndex: 10,
+          fontFamily: "monospace",
+          fontSize: "0.68rem",
+          color: "rgba(100, 116, 139, 0.7)",
+          backgroundColor: "rgba(15, 23, 42, 0.8)",
+          padding: "6px 12px",
+          borderRadius: "6px",
+          border: "1px solid rgba(255, 255, 255, 0.05)",
+          maxWidth: "320px",
+          wordBreak: "break-all"
+        }}
+      >
+        SYS DIAG: {audioDiagnostic}
+      </div>
       {/* Silent HTML5 audio tag to force audio session output category (bypasses phone silent ring switch) */}
       <audio
         id="silence-audio"
