@@ -1,10 +1,11 @@
 function generateWavDataUri(sampleRate, duration, synthFn) {
   const numSamples = Math.floor(sampleRate * duration);
-  const buffer = new Uint8Array(44 + numSamples);
+  const dataSize = numSamples * 2; // 16-bit signed PCM = 2 bytes per sample
+  const buffer = new Uint8Array(44 + dataSize);
 
   // RIFF header
   buffer[0] = 0x52; buffer[1] = 0x49; buffer[2] = 0x46; buffer[3] = 0x46; // "RIFF"
-  const fileLength = 36 + numSamples;
+  const fileLength = 36 + dataSize;
   buffer[4] = fileLength & 0xFF;
   buffer[5] = (fileLength >> 8) & 0xFF;
   buffer[6] = (fileLength >> 16) & 0xFF;
@@ -22,27 +23,36 @@ function generateWavDataUri(sampleRate, duration, synthFn) {
   buffer[25] = (sampleRate >> 8) & 0xFF;
   buffer[26] = (sampleRate >> 16) & 0xFF;
   buffer[27] = (sampleRate >> 24) & 0xFF;
-  const byteRate = sampleRate; // 1 channel, 8-bit samples
+  const byteRate = sampleRate * 2; // 16-bit = 2 bytes per sample
   buffer[28] = byteRate & 0xFF;
   buffer[29] = (byteRate >> 8) & 0xFF;
   buffer[30] = (byteRate >> 16) & 0xFF;
   buffer[31] = (byteRate >> 24) & 0xFF;
-  buffer[32] = 1; buffer[33] = 0; // Block align (1 byte)
-  buffer[34] = 8; buffer[35] = 0; // Bits per sample (8 bits)
+  buffer[32] = 2; buffer[33] = 0; // Block align (2 bytes)
+  buffer[34] = 16; buffer[35] = 0; // Bits per sample (16 bits)
 
   // DATA sub-chunk
   buffer[36] = 0x64; buffer[37] = 0x61; buffer[38] = 0x74; buffer[39] = 0x61; // "data"
-  buffer[40] = numSamples & 0xFF;
-  buffer[41] = (numSamples >> 8) & 0xFF;
-  buffer[42] = (numSamples >> 16) & 0xFF;
-  buffer[43] = (numSamples >> 24) & 0xFF;
+  buffer[40] = dataSize & 0xFF;
+  buffer[41] = (dataSize >> 8) & 0xFF;
+  buffer[42] = (dataSize >> 16) & 0xFF;
+  buffer[43] = (dataSize >> 24) & 0xFF;
 
-  // Generate samples
+  // Generate 16-bit samples (little endian signed 16-bit)
   for (let i = 0; i < numSamples; i++) {
     const t = i / sampleRate;
     const sampleVal = synthFn(t, duration); // Returns value in range [-1, 1]
-    const uByte = Math.floor((sampleVal + 1) * 127.5);
-    buffer[44 + i] = Math.max(0, Math.min(255, uByte));
+    
+    // Scale to signed 16-bit range: [-32768, 32767]
+    const intVal = Math.floor(sampleVal * 32767);
+    const clampedVal = Math.max(-32768, Math.min(32767, intVal));
+    
+    // Convert to 16-bit unsigned (for the byte buffer)
+    const uShort = clampedVal < 0 ? clampedVal + 65536 : clampedVal;
+    
+    const byteIndex = 44 + i * 2;
+    buffer[byteIndex] = uShort & 0xFF;
+    buffer[byteIndex + 1] = (uShort >> 8) & 0xFF;
   }
 
   // Convert to Base64
@@ -65,8 +75,11 @@ class AudioPool {
     if (typeof window === "undefined" || !this.dataUri) return;
     this.pool = [];
     for (let i = 0; i < this.size; i++) {
-      const audio = new Audio(this.dataUri);
+      const audio = new Audio();
+      audio.src = this.dataUri;
       audio.volume = 1.0;
+      audio.preload = "auto";
+      audio.load();
       this.pool.push(audio);
     }
   }
@@ -126,26 +139,26 @@ class FissionAudio {
     if (this.wavCached) return;
     try {
       this._shootPhase = 0;
-      this.shootWav = generateWavDataUri(11025, 0.16, (t, dur) => {
+      this.shootWav = generateWavDataUri(22050, 0.16, (t, dur) => {
         const progress = t / dur;
         const freq = 360 - progress * (360 - 45);
-        this._shootPhase += freq * (1 / 11025);
+        this._shootPhase += freq * (1 / 22050);
         const wave = (this._shootPhase % 1) * 2 - 1;
         const gain = 0.08 * (1 - progress);
         return wave * gain;
       });
 
       this._hitPhase = 0;
-      this.hitWav = generateWavDataUri(11025, 0.14, (t, dur) => {
+      this.hitWav = generateWavDataUri(22050, 0.14, (t, dur) => {
         const progress = t / dur;
         const freq = 680 - progress * (680 - 180);
-        this._hitPhase += freq * (1 / 11025);
+        this._hitPhase += freq * (1 / 22050);
         const wave = Math.abs((this._hitPhase % 1) * 4 - 2) - 1;
         const gain = 0.12 * (1 - progress);
         return wave * gain;
       });
 
-      this.bounceWav = generateWavDataUri(11025, 0.04, (t, dur) => {
+      this.bounceWav = generateWavDataUri(22050, 0.04, (t, dur) => {
         const progress = t / dur;
         const wave = Math.sin(2 * Math.PI * 1600 * t);
         const gain = 0.04 * (1 - progress);
@@ -154,19 +167,19 @@ class FissionAudio {
 
       this._fissionBoomPhase = 0;
       this._noisePrev = 0;
-      this.fissionWav = generateWavDataUri(11025, 0.45, (t, dur) => {
+      this.fissionWav = generateWavDataUri(22050, 0.45, (t, dur) => {
         const progress = t / dur;
         
         // Boom sub-bass
         const boomFreq = 100 - progress * (100 - 20);
-        this._fissionBoomPhase += boomFreq * (1 / 11025);
+        this._fissionBoomPhase += boomFreq * (1 / 22050);
         const boomWave = Math.sin(2 * Math.PI * this._fissionBoomPhase);
         const boomGain = 0.25 * (1 - progress);
         
         // Noise crackle with a basic lowpass cutoff sweep
         const whiteNoise = Math.random() * 2 - 1;
         const cutoff = 800 - progress * (800 - 150);
-        const dt = 1 / 11025;
+        const dt = 1 / 22050;
         const rc = 1 / (2 * Math.PI * cutoff);
         const alpha = dt / (rc + dt);
         this._noisePrev = this._noisePrev + alpha * (whiteNoise - this._noisePrev);
@@ -175,7 +188,7 @@ class FissionAudio {
         return (boomWave * boomGain) + (this._noisePrev * noiseGain);
       });
 
-      this.registerWav = generateWavDataUri(11025, 0.22, (t, dur) => {
+      this.registerWav = generateWavDataUri(22050, 0.22, (t, dur) => {
         const progress = t / dur;
         const isSecondPart = t >= 0.06;
         const f1 = isSecondPart ? 1318.51 : 987.77;
