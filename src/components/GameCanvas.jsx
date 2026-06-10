@@ -26,6 +26,7 @@ export default function GameCanvas() {
   // Set up iOS Safari Web Audio unlocker and hidden Switch haptics
   const [audioStatus, setAudioStatus] = useState("LOCKED");
   const [audioDiagnostic, setAudioDiagnostic] = useState("await_gesture");
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
 
   // Audio unlock — fires on first valid iOS gesture (touchend or click).
   // Correct order: audioSession → silent HTML5 audio → init() → resume → warmup buffer.
@@ -103,10 +104,12 @@ export default function GameCanvas() {
     const checkStatus = () => {
       if (audioInstance.muted) {
         setAudioStatus("MUTED");
-      } else if (!audioInstance.ctx) {
-        setAudioStatus("LOCKED");
-      } else {
+      } else if (audioInstance.ctx) {
         setAudioStatus(audioInstance.ctx.state.toUpperCase());
+      } else if (audioInstance.fallbackUnlocked) {
+        setAudioStatus("RUNNING (FALLBACK)");
+      } else {
+        setAudioStatus("LOCKED");
       }
     };
     checkStatus();
@@ -442,13 +445,17 @@ export default function GameCanvas() {
           <div>
             FISSIONS <span style={{ color: "#334155", fontWeight: "bold", fontSize: "1.05rem", marginLeft: "6px" }}>{fissionCount}</span>
           </div>
-          <div>
+          <div
+            onClick={() => setShowDiagnostics(prev => !prev)}
+            style={{ cursor: "pointer", pointerEvents: "auto" }}
+            title="Click to toggle diagnostics telemetry"
+          >
             AUDIO <span style={{
-              color: audioStatus === "RUNNING" ? "#39ff14" : audioStatus === "MUTED" ? "#707080" : "#ff007f",
+              color: audioStatus.startsWith("RUNNING") ? "#39ff14" : audioStatus === "MUTED" ? "#707080" : "#ff007f",
               fontWeight: "bold",
               fontSize: "1.01rem",
               marginLeft: "6px",
-              textShadow: audioStatus === "RUNNING" ? "0 0 10px rgba(57,255,20,0.3)" : "none"
+              textShadow: audioStatus.startsWith("RUNNING") ? "0 0 10px rgba(57,255,20,0.3)" : "none"
             }}>{audioStatus}</span>
           </div>
         </div>
@@ -514,26 +521,28 @@ export default function GameCanvas() {
         style={{ display: "none" }}
       />
       {/* Telemetry Debug Log Console */}
-      <div
-        style={{
-          position: "absolute",
-          bottom: "16px",
-          left: "16px",
-          pointerEvents: "none",
-          zIndex: 10,
-          fontFamily: "monospace",
-          fontSize: "0.68rem",
-          color: "rgba(100, 116, 139, 0.7)",
-          backgroundColor: "rgba(15, 23, 42, 0.8)",
-          padding: "6px 12px",
-          borderRadius: "6px",
-          border: "1px solid rgba(255, 255, 255, 0.05)",
-          maxWidth: "320px",
-          wordBreak: "break-all"
-        }}
-      >
-        SYS DIAG: {audioDiagnostic} | INIT_LOG: {audioInstance.initLog || "none"}
-      </div>
+      {showDiagnostics && (
+        <div
+          style={{
+            position: "absolute",
+            bottom: "16px",
+            left: "16px",
+            pointerEvents: "none",
+            zIndex: 10,
+            fontFamily: "monospace",
+            fontSize: "0.68rem",
+            color: "rgba(100, 116, 139, 0.7)",
+            backgroundColor: "rgba(15, 23, 42, 0.8)",
+            padding: "6px 12px",
+            borderRadius: "6px",
+            border: "1px solid rgba(255, 255, 255, 0.05)",
+            maxWidth: "320px",
+            wordBreak: "break-all"
+          }}
+        >
+          SYS DIAG: {audioDiagnostic} | INIT_LOG: {audioInstance.initLog || "none"}
+        </div>
+      )}
       {/* Silent HTML5 audio tag to force audio session output category (bypasses phone silent ring switch) */}
       <audio
         id="silence-audio"

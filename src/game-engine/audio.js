@@ -107,6 +107,7 @@ class FissionAudio {
     this.muted = false;
     this.iosHapticCallback = null;
     this.wavCached = false;
+    this.fallbackUnlocked = false;
     
     this.shootWav = null;
     this.hitWav = null;
@@ -185,12 +186,12 @@ class FissionAudio {
         return wave * gain;
       });
 
-      // Initialize audio pools
-      this.shootPool = new AudioPool(this.shootWav, 4);
-      this.hitPool = new AudioPool(this.hitWav, 6);
-      this.bouncePool = new AudioPool(this.bounceWav, 12);
-      this.fissionPool = new AudioPool(this.fissionWav, 6);
-      this.registerPool = new AudioPool(this.registerWav, 4);
+      // Initialize audio pools (optimized sizes for iOS Safari concurrency limits)
+      this.shootPool = new AudioPool(this.shootWav, 3);
+      this.hitPool = new AudioPool(this.hitWav, 4);
+      this.bouncePool = new AudioPool(this.bounceWav, 6);
+      this.fissionPool = new AudioPool(this.fissionWav, 4);
+      this.registerPool = new AudioPool(this.registerWav, 2);
 
       this.shootPool.init();
       this.hitPool.init();
@@ -213,6 +214,7 @@ class FissionAudio {
       if (this.bouncePool) this.bouncePool.unlock();
       if (this.fissionPool) this.fissionPool.unlock();
       if (this.registerPool) this.registerPool.unlock();
+      this.fallbackUnlocked = true;
       this.initLog += "unlockPools_ok ";
     } catch (e) {
       this.initLog += `unlockPools_err:${e.message || e} `;
@@ -241,7 +243,11 @@ class FissionAudio {
       return;
     }
     try {
-      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      const AudioContextClass =
+        (typeof window !== "undefined" && (window.AudioContext || window.webkitAudioContext)) ||
+        (typeof globalThis !== "undefined" && (globalThis.AudioContext || globalThis.webkitAudioContext)) ||
+        (typeof self !== "undefined" && (self.AudioContext || self.webkitAudioContext));
+      
       this.initLog += `class_type:${typeof AudioContextClass} `;
       if (!AudioContextClass) {
         this.initError = "No AudioContext class found";
