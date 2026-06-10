@@ -1,21 +1,47 @@
 import { MP3_ASSETS } from "./sound-assets";
 
+// Helper to translate Base64 string to a local binary Blob URL
+function base64ToBlobUrl(base64Data, contentType = "audio/mp3") {
+  if (typeof window === "undefined") return "";
+  try {
+    const base64Str = base64Data.split(",")[1];
+    const byteCharacters = atob(base64Str);
+    const sliceSize = 512;
+    const byteArrays = [];
+
+    for (let offset = 0; offset < byteCharacters.length; offset += sliceSize) {
+      const slice = byteCharacters.slice(offset, offset + sliceSize);
+      const byteNumbers = new Array(slice.length);
+      for (let i = 0; i < slice.length; i++) {
+        byteNumbers[i] = slice.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      byteArrays.push(byteArray);
+    }
+
+    const blob = new Blob(byteArrays, { type: contentType });
+    return URL.createObjectURL(blob);
+  } catch (e) {
+    console.error("Failed to convert base64 to Blob URL:", e);
+    return base64Data; // fallback to raw base64
+  }
+}
+
 class HTML5AudioPool {
-  constructor(dataUri, size = 3) {
-    this.dataUri = dataUri;
+  constructor(blobUrl, size = 3) {
+    this.blobUrl = blobUrl;
     this.size = size;
     this.pool = [];
     this.index = 0;
   }
 
   init() {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined" || !this.blobUrl) return;
     this.pool = [];
     for (let i = 0; i < this.size; i++) {
       const audio = new Audio();
-      audio.src = this.dataUri;
+      audio.src = this.blobUrl;
       audio.preload = "auto";
-      // Load into memory
       audio.load();
       this.pool.push(audio);
     }
@@ -51,14 +77,18 @@ class HTML5AudioPool {
     try {
       const audio = this.pool[this.index];
       this.index = (this.index + 1) % this.size;
-      
-      // Senior Optimization: only seek if the audio is currently playing.
-      // If it is paused or has ended, we don't need to seek to 0, avoiding thread-blocking iOS decoder flushes.
+
+      // Senior Optimization: Only set currentTime if the audio is actively playing.
+      // If it has naturally ended or is paused, starting it from 0 does not require seeking,
+      // which prevents thread blocks from hardware decoder seek flushes on iOS Safari.
       if (!audio.paused && !audio.ended) {
         audio.currentTime = 0;
       }
-      
-      audio.play().catch(() => {});
+
+      const p = audio.play();
+      if (p && typeof p.then === "function") {
+        p.catch(() => {});
+      }
     } catch (e) {
       console.warn("HTML5 play failed:", e);
     }
@@ -69,13 +99,21 @@ class FissionAudio {
   constructor() {
     this.muted = false;
     this.pools = {};
+    this.blobUrls = {};
     this.initLog = "await_init";
     this.initError = "";
     this.useHTML5 = true; 
   }
 
   prefetchSounds() {
-    // Sound assets are embedded as Base64 strings, so prefetching is zero-cost/noop.
+    if (typeof window === "undefined") return;
+    
+    // Translate Base64 MP3s to local Blob URLs exactly once on startup
+    if (Object.keys(this.blobUrls).length === 0) {
+      for (const [name, base64] of Object.entries(MP3_ASSETS)) {
+        this.blobUrls[name] = base64ToBlobUrl(base64);
+      }
+    }
   }
 
   init() {
@@ -86,12 +124,15 @@ class FissionAudio {
     }
 
     try {
+      // Ensure blobs are generated
+      this.prefetchSounds();
+
       // Initialize and unlock each sound pool
-      for (const [name, dataUri] of Object.entries(MP3_ASSETS)) {
+      for (const [name, blobUrl] of Object.entries(this.blobUrls)) {
         if (!this.pools[name]) {
-          // Optimized: keep pool size small and lightweight (13 channels total) to avoid memory footprint issues
-          const poolSize = name === "bounce" ? 4 : (name === "hit" ? 3 : 2);
-          const pool = new HTML5AudioPool(dataUri, poolSize);
+          // Optimized: minimal polyphony to reduce CPU context switches (9 channels total)
+          const poolSize = name === "bounce" ? 3 : (name === "hit" ? 2 : (name === "shoot" ? 2 : 1));
+          const pool = new HTML5AudioPool(blobUrl, poolSize);
           pool.init();
           pool.unlock();
           this.pools[name] = pool;
