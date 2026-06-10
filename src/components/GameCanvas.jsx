@@ -540,7 +540,7 @@ export default function GameCanvas() {
             wordBreak: "break-all"
           }}
         >
-          SYS DIAG: {audioDiagnostic} | INIT_LOG: {audioInstance.initLog || "none"}
+          SYS DIAG: {audioDiagnostic} | INIT_LOG: {audioInstance.initLog || "none"} | ERRORS: {typeof window !== "undefined" && window.__audio_errors ? window.__audio_errors.slice(-3).join(",") : "none"}
         </div>
       )}
       {/* Silent HTML5 audio tag to force audio session output category (bypasses phone silent ring switch) */}

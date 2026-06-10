@@ -74,12 +74,27 @@ class AudioPool {
   init() {
     if (typeof window === "undefined" || !this.dataUri) return;
     this.pool = [];
+
+    let container = document.getElementById("audio-fallback-container");
+    if (!container) {
+      container = document.createElement("div");
+      container.id = "audio-fallback-container";
+      container.style.position = "absolute";
+      container.style.width = "0px";
+      container.style.height = "0px";
+      container.style.opacity = "0.01";
+      container.style.pointerEvents = "none";
+      container.style.overflow = "hidden";
+      document.body.appendChild(container);
+    }
+
     for (let i = 0; i < this.size; i++) {
       const audio = new Audio();
       audio.src = this.dataUri;
       audio.volume = 1.0;
       audio.preload = "auto";
       audio.load();
+      container.appendChild(audio);
       this.pool.push(audio);
     }
   }
@@ -106,10 +121,26 @@ class AudioPool {
     try {
       const audio = this.pool[this.index];
       audio.currentTime = 0;
-      audio.play().catch(e => console.warn("Pool play failed:", e));
+      audio.play().catch(e => {
+        console.warn("Pool play failed:", e);
+        if (typeof window !== "undefined") {
+          window.__audio_errors = window.__audio_errors || [];
+          const errMsg = e.message || String(e);
+          if (!window.__audio_errors.includes(errMsg)) {
+            window.__audio_errors.push(errMsg);
+          }
+        }
+      });
       this.index = (this.index + 1) % this.size;
     } catch (e) {
       console.warn("AudioPool play failed:", e);
+      if (typeof window !== "undefined") {
+        window.__audio_errors = window.__audio_errors || [];
+        const errMsg = e.message || String(e);
+        if (!window.__audio_errors.includes(errMsg)) {
+          window.__audio_errors.push(`catch:${errMsg}`);
+        }
+      }
     }
   }
 }
