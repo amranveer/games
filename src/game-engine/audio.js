@@ -312,11 +312,11 @@ class FissionAudio {
   playShoot() {
     this.triggerHaptic(12);
     if (this.muted) return;
-    if (!this.ctx) {
+    if (!this.ctx || this.ctx.state !== "running") {
       this.playWav(this.shootPool);
+      if (this.ctx) this.resumeCtx();
       return;
     }
-    this.resumeCtx();
     try {
       const t = this.ctx.currentTime;
       const osc = this.ctx.createOscillator();
@@ -339,11 +339,11 @@ class FissionAudio {
   playHit() {
     this.triggerHaptic(28);
     if (this.muted) return;
-    if (!this.ctx) {
+    if (!this.ctx || this.ctx.state !== "running") {
       this.playWav(this.hitPool);
+      if (this.ctx) this.resumeCtx();
       return;
     }
-    this.resumeCtx();
     try {
       const t = this.ctx.currentTime;
       const osc = this.ctx.createOscillator();
@@ -366,11 +366,11 @@ class FissionAudio {
   playBounce() {
     this.triggerHaptic(5);
     if (this.muted) return;
-    if (!this.ctx) {
+    if (!this.ctx || this.ctx.state !== "running") {
       this.playWav(this.bouncePool);
+      if (this.ctx) this.resumeCtx();
       return;
     }
-    this.resumeCtx();
     try {
       const t = this.ctx.currentTime;
       const osc = this.ctx.createOscillator();
@@ -392,11 +392,11 @@ class FissionAudio {
   playFission() {
     this.triggerHaptic([60, 40, 100]);
     if (this.muted) return;
-    if (!this.ctx) {
+    if (!this.ctx || this.ctx.state !== "running") {
       this.playWav(this.fissionPool);
+      if (this.ctx) this.resumeCtx();
       return;
     }
-    this.resumeCtx();
     try {
       const t = this.ctx.currentTime;
 
@@ -446,11 +446,11 @@ class FissionAudio {
   playRegister() {
     this.triggerHaptic(15);
     if (this.muted) return;
-    if (!this.ctx) {
+    if (!this.ctx || this.ctx.state !== "running") {
       this.playWav(this.registerPool);
+      if (this.ctx) this.resumeCtx();
       return;
     }
-    this.resumeCtx();
     try {
       const t = this.ctx.currentTime;
       const osc1 = this.ctx.createOscillator();
