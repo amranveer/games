@@ -40,11 +40,13 @@ class FissionAudio {
   }
 
   // --- Play methods ---
-  // All guards check: context must exist AND be running. No init(), no resumeCtx() inside.
+  // All guards check: context must exist. We call resumeCtx() to ensure it wakes up,
+  // and schedule nodes immediately (they will queue and play once resumed).
 
   playShoot() {
     this.triggerHaptic(12);
-    if (!this.ctx || this.ctx.state !== "running" || this.muted) return;
+    if (!this.ctx || this.muted) return;
+    this.resumeCtx();
     try {
       const t = this.ctx.currentTime;
       const osc = this.ctx.createOscillator();
@@ -65,7 +67,8 @@ class FissionAudio {
 
   playHit() {
     this.triggerHaptic(28);
-    if (!this.ctx || this.ctx.state !== "running" || this.muted) return;
+    if (!this.ctx || this.muted) return;
+    this.resumeCtx();
     try {
       const t = this.ctx.currentTime;
       const osc = this.ctx.createOscillator();
@@ -86,7 +89,8 @@ class FissionAudio {
 
   playBounce() {
     this.triggerHaptic(5);
-    if (!this.ctx || this.ctx.state !== "running" || this.muted) return;
+    if (!this.ctx || this.muted) return;
+    this.resumeCtx();
     try {
       const t = this.ctx.currentTime;
       const osc = this.ctx.createOscillator();
@@ -106,7 +110,8 @@ class FissionAudio {
 
   playFission() {
     this.triggerHaptic([60, 40, 100]);
-    if (!this.ctx || this.ctx.state !== "running" || this.muted) return;
+    if (!this.ctx || this.muted) return;
+    this.resumeCtx();
     try {
       const t = this.ctx.currentTime;
 
@@ -154,7 +159,8 @@ class FissionAudio {
 
   playRegister() {
     this.triggerHaptic(15);
-    if (!this.ctx || this.ctx.state !== "running" || this.muted) return;
+    if (!this.ctx || this.muted) return;
+    this.resumeCtx();
     try {
       const t = this.ctx.currentTime;
       const osc1 = this.ctx.createOscillator();

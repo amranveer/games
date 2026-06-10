@@ -459,7 +459,13 @@ export default function GameCanvas() {
         loop
         playsInline
         src="data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAAA"
-        style={{ display: "none" }}
+        style={{
+          position: "absolute",
+          width: "1px",
+          height: "1px",
+          opacity: 0.01,
+          pointerEvents: "none"
+        }}
       />
     </div>
   );
