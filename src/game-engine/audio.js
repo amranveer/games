@@ -8,12 +8,36 @@ class FissionAudio {
   // ONLY called from window touchend/click unlockAudio handler (a valid iOS gesture).
   // Never call this from physics callbacks, RAF loops, or touchstart handlers.
   init() {
-    if (typeof window === "undefined") return;
-    if (this.ctx) return;
+    this.initLog = "init_start ";
+    if (typeof window === "undefined") {
+      this.initLog += "window_undef ";
+      return;
+    }
+    if (this.ctx) {
+      this.initLog += "ctx_already_exists ";
+      return;
+    }
     try {
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-      this.ctx = new AudioContextClass();
+      this.initLog += `class_type:${typeof AudioContextClass} `;
+      if (!AudioContextClass) {
+        this.initError = "No AudioContext class found";
+        this.initLog += "class_not_found ";
+        return;
+      }
+      
+      const instance = new AudioContextClass();
+      this.initLog += `instantiated_ok(type:${typeof instance}) `;
+      if (instance) {
+        this.initLog += `instance_state:${instance.state} `;
+        this.ctx = instance;
+        this.initLog += `assigned_ctx_ok(has_ctx:${this.ctx ? "yes" : "no"}) `;
+      } else {
+        this.initLog += "instance_falsy ";
+      }
     } catch (e) {
+      this.initError = e.message || String(e);
+      this.initLog += `catch_err:${e.message || String(e)} `;
       console.warn("Web Audio API not supported", e);
     }
   }
