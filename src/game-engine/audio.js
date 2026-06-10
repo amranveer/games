@@ -8,15 +8,15 @@ class FissionAudio {
     this.initError = "";
   }
 
-  // Pre-fetch array buffers immediately when this module is imported on the client side
+  // Pre-fetch MP3 files immediately when this module is imported on the client side
   async prefetchSounds() {
     if (typeof window === "undefined") return;
     const sounds = {
-      shoot: "/sounds/shoot.wav",
-      hit: "/sounds/hit.wav",
-      bounce: "/sounds/bounce.wav",
-      fission: "/sounds/fission.wav",
-      register: "/sounds/register.wav"
+      shoot: "/sounds/shoot.mp3",
+      hit: "/sounds/hit.mp3",
+      bounce: "/sounds/bounce.mp3",
+      fission: "/sounds/fission.mp3",
+      register: "/sounds/register.mp3"
     };
 
     for (const [name, url] of Object.entries(sounds)) {
@@ -105,31 +105,11 @@ class FissionAudio {
     }
   }
 
-  async loadAndPlayOnDemand(name, url) {
-    try {
-      const response = await fetch(url);
-      const raw = await response.arrayBuffer();
-      if (!this.ctx) return;
-      this.ctx.decodeAudioData(raw, (decoded) => {
-        this.buffers[name] = decoded;
-        if (this.ctx) {
-          const source = this.ctx.createBufferSource();
-          source.buffer = decoded;
-          source.connect(this.ctx.destination);
-          source.start(0);
-        }
-      });
-    } catch (e) {
-      console.warn(`loadAndPlayOnDemand failed for ${name}:`, e);
-    }
-  }
-
   playSound(name) {
     if (this.muted) return;
 
     if (this.ctx) {
       this.resumeCtx();
-
       const buffer = this.buffers[name];
       if (buffer) {
         try {
@@ -141,21 +121,6 @@ class FissionAudio {
         } catch (e) {
           console.warn(`Buffer play failed for ${name}:`, e);
         }
-      } else if (this.rawBuffers[name]) {
-        try {
-          const slice = this.rawBuffers[name].slice(0);
-          this.ctx.decodeAudioData(slice, (decoded) => {
-            this.buffers[name] = decoded;
-            try {
-              const source = this.ctx.createBufferSource();
-              source.buffer = decoded;
-              source.connect(this.ctx.destination);
-              source.start(0);
-            } catch (innerErr) {}
-          });
-        } catch (e) {}
-      } else {
-        this.loadAndPlayOnDemand(name, `/sounds/${name}.wav`);
       }
     }
   }

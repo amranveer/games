@@ -22,27 +22,36 @@ export default function GameCanvas() {
   const canvasRef = useRef(null);
   const requestRef = useRef(null);
 
-  // Set up iOS Safari Web Audio unlocker and game state
+  // Game/Audio states
+  const [gameStarted, setGameStarted] = useState(false);
   const [audioStatus, setAudioStatus] = useState("LOCKED");
   const [audioDiagnostic, setAudioDiagnostic] = useState("await_gesture");
-  const [showDiagnostics, setShowDiagnostics] = useState(true);
-  const [gameStarted, setGameStarted] = useState(false);
-  const unlockedRef = useRef(false);
 
-  // Audio unlock — fires synchronously when the user clicks the "START" overlay button
-  const unlockAudio = useCallback(() => {
-    if (unlockedRef.current) return;
-    unlockedRef.current = true;
-
-    // Elevate audio session category if API exists
-    if (typeof navigator !== "undefined" && navigator.audioSession) {
-      try {
-        navigator.audioSession.type = "playback";
-      } catch (e) {}
+  // Synchronous audio initiation inside a concrete button's click event handler
+  const handleStartGame = useCallback(() => {
+    let log = "gesture_fired ";
+    try {
+      // 1. Prefetch sounds in case it hasn't finished (it's safe to call multiple times)
+      audioInstance.prefetchSounds();
+      
+      // 2. Call synchronous init (resumes AudioContext, creates warmup node)
+      audioInstance.init();
+      
+      if (audioInstance.ctx) {
+        log += `ctx_ok(state:${audioInstance.ctx.state}) `;
+      } else {
+        log += `ctx_failed(err:${audioInstance.initError || "none"}) `;
+      }
+    } catch (err) {
+      log += `err:${err.message || err} `;
     }
+    setAudioDiagnostic(log);
+    setGameStarted(true);
+  }, []);
 
-    audioInstance.init();
-    setAudioDiagnostic(audioInstance.initLog || "initialized");
+  // Prefetch sounds on client-side mount
+  useEffect(() => {
+    audioInstance.prefetchSounds();
   }, []);
 
   // Poll state of the context to update HUD dynamically
@@ -81,13 +90,6 @@ export default function GameCanvas() {
   const recoilRef = useRef(0);
   const flashIntensityRef = useRef(0);
   const mousePosRef = useRef({ x: 400, y: 0 });
-
-  // Prefetch audio assets on mount
-  useEffect(() => {
-    if (audioInstance.prefetchSounds) {
-      audioInstance.prefetchSounds();
-    }
-  }, []);
 
   // Initialize canvas size and trackResize
   useEffect(() => {
@@ -200,34 +202,13 @@ export default function GameCanvas() {
 
   const handleMouseDown = (e) => {
     if (e.target.tagName === "BUTTON" || e.target.closest("button")) return;
-    unlockAudio();
     handleLaunchParticle(e.clientX, e.clientY);
   };
 
   const handleTouchStart = (e) => {
     if (e.target.tagName === "BUTTON" || e.target.closest("button")) return;
     if (e.touches.length !== 1) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    mousePosRef.current = {
-      x: e.touches[0].clientX - rect.left,
-      y: e.touches[0].clientY - rect.top
-    };
-  };
-
-  const handleTouchEnd = (e) => {
-    if (e.target.tagName === "BUTTON" || e.target.closest("button")) return;
-    if (e.changedTouches.length !== 1) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    
-    // Unlock audio first
-    unlockAudio();
-
-    // Launch particle at touch end coordinates
-    handleLaunchParticle(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+    handleLaunchParticle(e.touches[0].clientX, e.touches[0].clientY);
   };
 
   const handleMouseMove = (e) => {
@@ -364,6 +345,97 @@ export default function GameCanvas() {
         touchAction: "none"
       }}
     >
+      {/* Tap to Start / Audio Unlock Overlay */}
+      {!gameStarted && (
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(244, 246, 249, 0.7)",
+            backdropFilter: "blur(12px)",
+            WebkitBackdropFilter: "blur(12px)",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 100,
+            padding: "24px",
+            textAlign: "center"
+          }}
+        >
+          <div
+            style={{
+              background: "#ffffff",
+              border: "1px solid rgba(226, 232, 240, 0.8)",
+              borderRadius: "24px",
+              padding: "40px",
+              boxShadow: "0 20px 40px -15px rgba(148, 163, 184, 0.15)",
+              maxWidth: "400px",
+              width: "100%",
+              boxSizing: "border-box"
+            }}
+          >
+            <h1
+              style={{
+                fontFamily: "monospace",
+                fontSize: "1.4rem",
+                color: "#1e293b",
+                margin: "0 0 12px 0",
+                letterSpacing: "0.05em",
+                textTransform: "uppercase"
+              }}
+            >
+              Neon Plinko Cascade
+            </h1>
+            <p
+              style={{
+                fontFamily: "monospace",
+                fontSize: "0.8rem",
+                color: "#64748b",
+                margin: "0 0 32px 0",
+                lineHeight: "1.6",
+                letterSpacing: "0.02em"
+              }}
+            >
+              Experience high-fidelity, zero-latency synthesizer sounds optimized for iOS.
+            </p>
+            <button
+              onClick={handleStartGame}
+              style={{
+                width: "100%",
+                background: "#0f172a",
+                border: "none",
+                borderRadius: "12px",
+                padding: "16px 24px",
+                fontSize: "0.85rem",
+                color: "#ffffff",
+                cursor: "pointer",
+                fontFamily: "monospace",
+                fontWeight: "bold",
+                letterSpacing: "0.1em",
+                textTransform: "uppercase",
+                boxShadow: "0 10px 20px -10px rgba(15, 23, 42, 0.3)",
+                transition: "all 0.2s ease",
+                outline: "none"
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "#1e293b";
+                e.currentTarget.style.transform = "translateY(-1px)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "#0f172a";
+                e.currentTarget.style.transform = "translateY(0)";
+              }}
+            >
+              Tap to Start
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Dynamic Fission HUD Overlay */}
       <div
         style={{
@@ -392,17 +464,13 @@ export default function GameCanvas() {
           <div>
             FISSIONS <span style={{ color: "#334155", fontWeight: "bold", fontSize: "1.05rem", marginLeft: "6px" }}>{fissionCount}</span>
           </div>
-          <div
-            onClick={() => setShowDiagnostics(prev => !prev)}
-            style={{ cursor: "pointer", pointerEvents: "auto" }}
-            title="Click to toggle diagnostics telemetry"
-          >
+          <div>
             AUDIO <span style={{
-              color: audioStatus.startsWith("RUNNING") ? "#39ff14" : audioStatus === "MUTED" ? "#707080" : "#ff007f",
+              color: audioStatus === "RUNNING" ? "#39ff14" : audioStatus === "MUTED" ? "#707080" : "#ff007f",
               fontWeight: "bold",
               fontSize: "1.01rem",
               marginLeft: "6px",
-              textShadow: audioStatus.startsWith("RUNNING") ? "0 0 10px rgba(57,255,20,0.3)" : "none"
+              textShadow: audioStatus === "RUNNING" ? "0 0 10px rgba(57,255,20,0.3)" : "none"
             }}>{audioStatus}</span>
           </div>
         </div>
@@ -446,7 +514,6 @@ export default function GameCanvas() {
         onTouchStart={handleTouchStart}
         onMouseMove={handleMouseMove}
         onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
         style={{
           display: "block",
           width: "100%",
@@ -454,121 +521,28 @@ export default function GameCanvas() {
           cursor: "crosshair"
         }}
       />
-      {!gameStarted && (
-        <div
-          style={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            width: "100%",
-            height: "100%",
-            backgroundColor: "rgba(15, 23, 42, 0.85)",
-            backdropFilter: "blur(12px)",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 100
-          }}
-        >
-          <div
-            style={{
-              textAlign: "center",
-              padding: "40px",
-              borderRadius: "24px",
-              border: "1px solid rgba(255, 255, 255, 0.08)",
-              background: "radial-gradient(circle at center, rgba(30, 41, 59, 0.6) 0%, rgba(15, 23, 42, 0.8) 100%)",
-              boxShadow: "0 20px 50px rgba(0, 0, 0, 0.5), 0 0 40px rgba(255, 0, 127, 0.05)",
-              maxWidth: "90%",
-              width: "400px"
-            }}
-          >
-            <h1
-              style={{
-                fontSize: "1.8rem",
-                fontWeight: "bold",
-                color: "#ffffff",
-                letterSpacing: "4px",
-                margin: "0 0 10px 0",
-                fontFamily: "monospace",
-                textShadow: "0 0 20px rgba(255, 255, 255, 0.2)"
-              }}
-            >
-              NEON PLINKO
-            </h1>
-            <p
-              style={{
-                fontSize: "0.85rem",
-                color: "#94a3b8",
-                letterSpacing: "2px",
-                marginBottom: "30px",
-                fontFamily: "monospace"
-              }}
-            >
-              CASCADE LATTICE
-            </p>
-            
-            <button
-              onClick={(e) => {
-                unlockAudio();
-                setGameStarted(true);
-                e.stopPropagation();
-              }}
-              style={{
-                background: "linear-gradient(135deg, #ff007f 0%, #7928ca 100%)",
-                border: "none",
-                borderRadius: "12px",
-                color: "#ffffff",
-                fontSize: "0.95rem",
-                fontWeight: "bold",
-                letterSpacing: "2px",
-                padding: "16px 32px",
-                cursor: "pointer",
-                fontFamily: "monospace",
-                boxShadow: "0 0 20px rgba(255, 0, 127, 0.4)",
-                transition: "all 0.3s ease"
-              }}
-            >
-              TAP TO LAUNCH
-            </button>
-            
-            <p
-              style={{
-                fontSize: "0.7rem",
-                color: "#64748b",
-                marginTop: "25px",
-                fontFamily: "monospace",
-                lineHeight: "1.4"
-              }}
-            >
-              Ensure your physical Ring/Silent switch is set to RING mode for audio.
-            </p>
-          </div>
-        </div>
-      )}
+
       {/* Telemetry Debug Log Console */}
-      {showDiagnostics && (
-        <div
-          style={{
-            position: "absolute",
-            bottom: "16px",
-            left: "16px",
-            pointerEvents: "none",
-            zIndex: 10,
-            fontFamily: "monospace",
-            fontSize: "0.68rem",
-            color: "rgba(100, 116, 139, 0.7)",
-            backgroundColor: "rgba(15, 23, 42, 0.8)",
-            padding: "6px 12px",
-            borderRadius: "6px",
-            border: "1px solid rgba(255, 255, 255, 0.05)",
-            maxWidth: "320px",
-            wordBreak: "break-all"
-          }}
-        >
-          SYS DIAG: {audioDiagnostic} | INIT_LOG: {audioInstance.initLog || "none"} | ERRORS: {typeof window !== "undefined" && window.__audio_errors ? window.__audio_errors.slice(-3).join(",") : "none"}
-        </div>
-      )}
+      <div
+        style={{
+          position: "absolute",
+          bottom: "16px",
+          left: "16px",
+          pointerEvents: "none",
+          zIndex: 10,
+          fontFamily: "monospace",
+          fontSize: "0.68rem",
+          color: "rgba(100, 116, 139, 0.7)",
+          backgroundColor: "rgba(15, 23, 42, 0.8)",
+          padding: "6px 12px",
+          borderRadius: "6px",
+          border: "1px solid rgba(255, 255, 255, 0.05)",
+          maxWidth: "320px",
+          wordBreak: "break-all"
+        }}
+      >
+        SYS DIAG: {audioDiagnostic} | INIT_LOG: {audioInstance.initLog || "none"}
+      </div>
     </div>
   );
 }
