@@ -45,6 +45,11 @@ class FissionAudio {
     }
 
     try {
+      this.initLog += `proto:${window.location.protocol} `;
+      this.initLog += `has_AC:${typeof window.AudioContext !== "undefined" ? "yes" : "no"} `;
+      this.initLog += `has_wAC:${typeof window.webkitAudioContext !== "undefined" ? "yes" : "no"} `;
+      this.initLog += `ua:${navigator.userAgent.substring(0, 30)} `;
+
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
       if (!AudioContextClass) {
         this.initError = "Web Audio API not supported by browser";
