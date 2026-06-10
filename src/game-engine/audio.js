@@ -53,6 +53,54 @@ function generateWavDataUri(sampleRate, duration, synthFn) {
   return "data:audio/wav;base64," + btoa(binary);
 }
 
+class AudioPool {
+  constructor(dataUri, size = 8) {
+    this.dataUri = dataUri;
+    this.size = size;
+    this.pool = [];
+    this.index = 0;
+  }
+
+  init() {
+    if (typeof window === "undefined" || !this.dataUri) return;
+    this.pool = [];
+    for (let i = 0; i < this.size; i++) {
+      const audio = new Audio(this.dataUri);
+      audio.volume = 1.0;
+      this.pool.push(audio);
+    }
+  }
+
+  unlock() {
+    this.pool.forEach(audio => {
+      try {
+        const p = audio.play();
+        if (p && p.then) {
+          p.then(() => {
+            audio.pause();
+            audio.currentTime = 0;
+          }).catch(() => {});
+        } else {
+          audio.pause();
+          audio.currentTime = 0;
+        }
+      } catch (e) {}
+    });
+  }
+
+  play() {
+    if (this.pool.length === 0) return;
+    try {
+      const audio = this.pool[this.index];
+      audio.currentTime = 0;
+      audio.play().catch(e => console.warn("Pool play failed:", e));
+      this.index = (this.index + 1) % this.size;
+    } catch (e) {
+      console.warn("AudioPool play failed:", e);
+    }
+  }
+}
+
 class FissionAudio {
   constructor() {
     this.ctx = null;
@@ -65,6 +113,12 @@ class FissionAudio {
     this.bounceWav = null;
     this.fissionWav = null;
     this.registerWav = null;
+
+    this.shootPool = null;
+    this.hitPool = null;
+    this.bouncePool = null;
+    this.fissionPool = null;
+    this.registerPool = null;
   }
 
   cacheWavs() {
@@ -131,21 +185,43 @@ class FissionAudio {
         return wave * gain;
       });
 
+      // Initialize audio pools
+      this.shootPool = new AudioPool(this.shootWav, 4);
+      this.hitPool = new AudioPool(this.hitWav, 6);
+      this.bouncePool = new AudioPool(this.bounceWav, 12);
+      this.fissionPool = new AudioPool(this.fissionWav, 6);
+      this.registerPool = new AudioPool(this.registerWav, 4);
+
+      this.shootPool.init();
+      this.hitPool.init();
+      this.bouncePool.init();
+      this.fissionPool.init();
+      this.registerPool.init();
+
       this.wavCached = true;
     } catch (e) {
       console.warn("WAV synthesis caching failed:", e);
     }
   }
 
-  playWav(dataUri) {
-    if (this.muted || !dataUri) return;
+  unlockPools() {
+    if (this.muted) return;
+    this.initLog += "unlockPools_triggered ";
     try {
-      const audio = new Audio(dataUri);
-      audio.volume = 1.0;
-      audio.play().catch(e => console.warn("HTML5 audio playback failed:", e));
+      if (this.shootPool) this.shootPool.unlock();
+      if (this.hitPool) this.hitPool.unlock();
+      if (this.bouncePool) this.bouncePool.unlock();
+      if (this.fissionPool) this.fissionPool.unlock();
+      if (this.registerPool) this.registerPool.unlock();
+      this.initLog += "unlockPools_ok ";
     } catch (e) {
-      console.warn("HTML5 Audio fallback play failed:", e);
+      this.initLog += `unlockPools_err:${e.message || e} `;
     }
+  }
+
+  playWav(pool) {
+    if (this.muted || !pool) return;
+    pool.play();
   }
 
   // ONLY called from window touchend/click unlockAudio handler (a valid iOS gesture).
@@ -218,7 +294,7 @@ class FissionAudio {
     this.triggerHaptic(12);
     if (this.muted) return;
     if (!this.ctx) {
-      this.playWav(this.shootWav);
+      this.playWav(this.shootPool);
       return;
     }
     this.resumeCtx();
@@ -237,7 +313,7 @@ class FissionAudio {
       osc.stop(t + 0.16);
     } catch (e) {
       console.warn("playShoot failed:", e);
-      this.playWav(this.shootWav);
+      this.playWav(this.shootPool);
     }
   }
 
@@ -245,7 +321,7 @@ class FissionAudio {
     this.triggerHaptic(28);
     if (this.muted) return;
     if (!this.ctx) {
-      this.playWav(this.hitWav);
+      this.playWav(this.hitPool);
       return;
     }
     this.resumeCtx();
@@ -264,7 +340,7 @@ class FissionAudio {
       osc.stop(t + 0.14);
     } catch (e) {
       console.warn("playHit failed:", e);
-      this.playWav(this.hitWav);
+      this.playWav(this.hitPool);
     }
   }
 
@@ -272,7 +348,7 @@ class FissionAudio {
     this.triggerHaptic(5);
     if (this.muted) return;
     if (!this.ctx) {
-      this.playWav(this.bounceWav);
+      this.playWav(this.bouncePool);
       return;
     }
     this.resumeCtx();
@@ -290,7 +366,7 @@ class FissionAudio {
       osc.stop(t + 0.04);
     } catch (e) {
       console.warn("playBounce failed:", e);
-      this.playWav(this.bounceWav);
+      this.playWav(this.bouncePool);
     }
   }
 
@@ -298,7 +374,7 @@ class FissionAudio {
     this.triggerHaptic([60, 40, 100]);
     if (this.muted) return;
     if (!this.ctx) {
-      this.playWav(this.fissionWav);
+      this.playWav(this.fissionPool);
       return;
     }
     this.resumeCtx();
@@ -344,7 +420,7 @@ class FissionAudio {
       noise.stop(t + 0.35);
     } catch (e) {
       console.warn("playFission failed:", e);
-      this.playWav(this.fissionWav);
+      this.playWav(this.fissionPool);
     }
   }
 
@@ -352,7 +428,7 @@ class FissionAudio {
     this.triggerHaptic(15);
     if (this.muted) return;
     if (!this.ctx) {
-      this.playWav(this.registerWav);
+      this.playWav(this.registerPool);
       return;
     }
     this.resumeCtx();
@@ -383,7 +459,7 @@ class FissionAudio {
       osc2.stop(t + 0.22);
     } catch (e) {
       console.warn("playRegister failed:", e);
-      this.playWav(this.registerWav);
+      this.playWav(this.registerPool);
     }
   }
 

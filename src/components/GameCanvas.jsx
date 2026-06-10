@@ -66,11 +66,15 @@ export default function GameCanvas() {
         log += `ctx_null(err:${audioInstance.initError || "none"}) `;
       }
 
-      // Step 4: Resume the context if suspended or interrupted.
+      // Step 4: Unlock the HTML5 Audio pools for fallback playback.
+      log += "unlocking_pools ";
+      audioInstance.unlockPools();
+
+      // Step 5: Resume the context if suspended or interrupted.
       log += "calling_resume ";
       audioInstance.resumeCtx();
 
-      // Step 5: Play a 1-sample silent buffer to prime the hardware audio graph.
+      // Step 6: Play a 1-sample silent buffer to prime the hardware audio graph.
       if (audioInstance.ctx) {
         try {
           const warmupBuffer = audioInstance.ctx.createBuffer(1, 1, 22050);
