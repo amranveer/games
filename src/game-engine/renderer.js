@@ -18,6 +18,10 @@ const COLOR_SHADES = {
   "#ffc6ff": { light: "#fff0ff", shadow: "#ffa8ff" }
 };
 
+let cachedGrad = null;
+let cachedWidth = 0;
+let cachedHeight = 0;
+
 // Clear and render the pastel scientific probability background
 export function drawProbabilityCloud(ctx, center, time) {
   const width = ctx.canvas.width;
@@ -28,16 +32,19 @@ export function drawProbabilityCloud(ctx, center, time) {
   ctx.fillRect(0, 0, width, height);
 
   // 2. Soft, subtle central cloud representing probability density
+  if (!cachedGrad || cachedWidth !== width || cachedHeight !== height) {
+    const baseDim = Math.min(width, height);
+    const cloudRad = baseDim * 0.5;
+    cachedGrad = ctx.createRadialGradient(center.x, center.y, 20, center.x, center.y, cloudRad);
+    cachedGrad.addColorStop(0, "rgba(186, 225, 255, 0.22)");
+    cachedGrad.addColorStop(1, "rgba(255, 255, 255, 0)");
+    cachedWidth = width;
+    cachedHeight = height;
+  }
+
   ctx.save();
-  const baseDim = Math.min(width, height);
-  const cloudRad = baseDim * 0.5;
-  const grad = ctx.createRadialGradient(center.x, center.y, 20, center.x, center.y, cloudRad);
-  grad.addColorStop(0, "rgba(186, 225, 255, 0.22)");
-  grad.addColorStop(1, "rgba(255, 255, 255, 0)");
-  ctx.fillStyle = grad;
-  ctx.beginPath();
-  ctx.arc(center.x, center.y, cloudRad, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.fillStyle = cachedGrad;
+  ctx.fillRect(0, 0, width, height);
   ctx.restore();
 }
 
@@ -329,19 +336,14 @@ function renderElectronNode(ctx, el, cameraYaw, cameraPitch, center) {
     ctx.shadowBlur = 0;
     const baseRgba = RGBA_MAP[el.color] || "255, 224, 130";
 
+    ctx.beginPath();
+    ctx.moveTo(el.projTrail[0].x, el.projTrail[0].y);
     for (let i = 1; i < el.projTrail.length; i++) {
-      const pt1 = el.projTrail[i - 1];
-      const pt2 = el.projTrail[i];
-      
-      ctx.beginPath();
-      ctx.moveTo(pt1.x, pt1.y);
-      ctx.lineTo(pt2.x, pt2.y);
-      
-      const alpha = (i / el.projTrail.length) * 0.72;
-      ctx.strokeStyle = `rgba(${baseRgba}, ${alpha})`;
-      ctx.lineWidth = 3.0 * pt2.scale * (i / el.projTrail.length);
-      ctx.stroke();
+      ctx.lineTo(el.projTrail[i].x, el.projTrail[i].y);
     }
+    ctx.strokeStyle = `rgba(${baseRgba}, 0.28)`;
+    ctx.lineWidth = 1.8 * el.scale;
+    ctx.stroke();
     ctx.restore();
   }
 
@@ -534,25 +536,21 @@ export function drawProjectiles(ctx, projectiles) {
     if (p.trail && p.trail.length > 1) {
       ctx.save();
       ctx.shadowBlur = 0;
+      ctx.beginPath();
+      ctx.moveTo(p.trail[0].x, p.trail[0].y);
       for (let i = 1; i < p.trail.length; i++) {
-        const pt1 = p.trail[i - 1];
-        const pt2 = p.trail[i];
-        
-        ctx.beginPath();
-        ctx.moveTo(pt1.x, pt1.y);
-        ctx.lineTo(pt2.x, pt2.y);
-        
-        const alpha = (i / p.trail.length) * 0.7;
-        // Cyan-blue trail for free neutrons, coral-orange for heavy particle projectiles, neon pink for ejected electrons
-        ctx.strokeStyle = p.isEjectedElectron
-          ? `rgba(255, 0, 127, ${alpha})`
-          : p.isNeutron
-          ? `rgba(79, 195, 247, ${alpha})`
-          : `rgba(255, 112, 67, ${alpha})`;
-          
-        ctx.lineWidth = (p.isEjectedElectron ? 2.0 : p.isNeutron ? 2.8 : 4.2) * (i / p.trail.length);
-        ctx.stroke();
+        ctx.lineTo(p.trail[i].x, p.trail[i].y);
       }
+      
+      const strokeColor = p.isEjectedElectron
+        ? "rgba(255, 0, 127, 0.45)"
+        : p.isNeutron
+        ? "rgba(79, 195, 247, 0.45)"
+        : "rgba(255, 112, 67, 0.45)";
+        
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = p.isEjectedElectron ? 1.6 : p.isNeutron ? 2.2 : 3.2;
+      ctx.stroke();
       ctx.restore();
     }
 
