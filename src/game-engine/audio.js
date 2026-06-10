@@ -28,11 +28,10 @@ function base64ToBlobUrl(base64Data, contentType = "audio/mp3") {
 }
 
 class HTML5AudioPool {
-  constructor(blobUrl, size = 3) {
+  constructor(blobUrl, size = 4) {
     this.blobUrl = blobUrl;
     this.size = size;
     this.pool = [];
-    this.index = 0;
   }
 
   init() {
@@ -75,19 +74,16 @@ class HTML5AudioPool {
   play() {
     if (this.pool.length === 0) return;
     try {
-      const audio = this.pool[this.index];
-      this.index = (this.index + 1) % this.size;
-
-      // Senior Optimization: Only set currentTime if the audio is actively playing.
-      // If it has naturally ended or is paused, starting it from 0 does not require seeking,
-      // which prevents thread blocks from hardware decoder seek flushes on iOS Safari.
-      if (!audio.paused && !audio.ended) {
-        audio.currentTime = 0;
-      }
-
-      const p = audio.play();
-      if (p && typeof p.then === "function") {
-        p.catch(() => {});
+      // Senior Optimization: Find the first idle (paused or ended) audio channel.
+      // We do NOT call currentTime = 0 or pause() here during gameplay.
+      // This completely avoids iOS WebKit thread-blocking media decoder flushes.
+      // If all channels are currently busy, we drop the playback request to maintain 60fps.
+      const audio = this.pool.find(a => a.paused || a.ended);
+      if (audio) {
+        const p = audio.play();
+        if (p && typeof p.then === "function") {
+          p.catch(() => {});
+        }
       }
     } catch (e) {
       console.warn("HTML5 play failed:", e);
@@ -130,8 +126,8 @@ class FissionAudio {
       // Initialize and unlock each sound pool
       for (const [name, blobUrl] of Object.entries(this.blobUrls)) {
         if (!this.pools[name]) {
-          // Optimized: minimal polyphony to reduce CPU context switches (9 channels total)
-          const poolSize = name === "bounce" ? 3 : (name === "hit" ? 2 : (name === "shoot" ? 2 : 1));
+          // Senior Polyphony Tuning: balanced size to avoid drops without overloading the OS mixer
+          const poolSize = name === "bounce" ? 6 : (name === "hit" ? 4 : (name === "shoot" ? 3 : 2));
           const pool = new HTML5AudioPool(blobUrl, poolSize);
           pool.init();
           pool.unlock();
