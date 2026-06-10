@@ -57,7 +57,7 @@ export default function GameCanvas() {
       }
 
       // Step 3: Create the AudioContext — now inside a valid touchend/click call stack.
-      log += "calling_init ";
+      log += `keys:${Object.keys(audioInstance).join(",")} type_init:${typeof audioInstance.init} has_ctx:${audioInstance.ctx !== undefined ? (audioInstance.ctx ? "yes" : "falsy") : "no"} calling_init `;
       audioInstance.init();
 
       if (audioInstance.ctx) {
