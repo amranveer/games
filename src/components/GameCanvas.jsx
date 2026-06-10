@@ -27,11 +27,14 @@ export default function GameCanvas() {
   const [audioStatus, setAudioStatus] = useState("LOCKED");
   const [audioDiagnostic, setAudioDiagnostic] = useState("await_gesture");
   const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const unlockedRef = useRef(false);
 
   // Audio unlock — fires on first valid iOS gesture (touchend or click).
   // Correct order: audioSession → silent HTML5 audio → init() → resume → warmup buffer.
   // Must be 100% synchronous — any await breaks the iOS user gesture chain.
   const unlockAudio = useCallback(() => {
+    if (unlockedRef.current) return;
+    unlockedRef.current = true;
     let log = "start ";
     try {
       // Step 1: Elevate audio session BEFORE creating the AudioContext.
@@ -274,13 +277,34 @@ export default function GameCanvas() {
 
   const handleMouseDown = (e) => {
     if (e.target.tagName === "BUTTON" || e.target.closest("button")) return;
+    unlockAudio();
     handleLaunchParticle(e.clientX, e.clientY);
   };
 
   const handleTouchStart = (e) => {
     if (e.target.tagName === "BUTTON" || e.target.closest("button")) return;
     if (e.touches.length !== 1) return;
-    handleLaunchParticle(e.touches[0].clientX, e.touches[0].clientY);
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    mousePosRef.current = {
+      x: e.touches[0].clientX - rect.left,
+      y: e.touches[0].clientY - rect.top
+    };
+  };
+
+  const handleTouchEnd = (e) => {
+    if (e.target.tagName === "BUTTON" || e.target.closest("button")) return;
+    if (e.changedTouches.length !== 1) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    
+    // Unlock audio first
+    unlockAudio();
+
+    // Launch particle at touch end coordinates
+    handleLaunchParticle(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
   };
 
   const handleMouseMove = (e) => {
@@ -499,8 +523,7 @@ export default function GameCanvas() {
         onTouchStart={handleTouchStart}
         onMouseMove={handleMouseMove}
         onTouchMove={handleTouchMove}
-        onClick={unlockAudio}
-        onTouchEnd={unlockAudio}
+        onTouchEnd={handleTouchEnd}
         style={{
           display: "block",
           width: "100%",
