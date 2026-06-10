@@ -2,6 +2,7 @@ class FissionAudio {
   constructor() {
     this.ctx = null;
     this.muted = false;
+    this.iosHapticCallback = null;
   }
 
   init() {
@@ -21,9 +22,21 @@ class FissionAudio {
 
   triggerHaptic(pattern) {
     if (this.muted) return;
+    
+    // 1. Standard Vibration API
     if (typeof navigator !== "undefined" && navigator.vibrate) {
       try {
         navigator.vibrate(pattern);
+        return;
+      } catch (e) {
+        // Safe silent fail
+      }
+    }
+
+    // 2. iOS Safari Workaround Callback
+    if (typeof window !== "undefined" && this.iosHapticCallback) {
+      try {
+        this.iosHapticCallback(pattern);
       } catch (e) {
         // Safe silent fail
       }

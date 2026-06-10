@@ -28,11 +28,13 @@ export default function GamePage() {
   return (
     <div
       style={{
-        width: "100vw",
-        height: "100vh",
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
         background: "#f4f6f9",
-        overflow: "hidden",
-        position: "relative"
+        overflow: "hidden"
       }}
     >
       <GameCanvas />

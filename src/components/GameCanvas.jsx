@@ -18,11 +18,58 @@ import {
 import audioInstance from "../game-engine/audio";
 
 export default function GameCanvas() {
+  const iosHapticInputRef = useRef(null);
   const canvasRef = useRef(null);
   const requestRef = useRef(null);
 
+  // Set up iOS Safari Web Audio unlocker and hidden Switch haptics
+  useEffect(() => {
+    // 1. Add switch attribute to input ref to enable Safari system haptics
+    if (iosHapticInputRef.current) {
+      iosHapticInputRef.current.setAttribute("switch", "");
+    }
+
+    // 2. Wire up audioInstance.iosHapticCallback to programmatically toggle the switch
+    audioInstance.iosHapticCallback = (pattern) => {
+      const label = document.getElementById("haptic-trigger");
+      if (label) {
+        label.click();
+      }
+    };
+
+    // 3. Web Audio Unlocker for iOS Safari (resumes on first click or touch)
+    const unlockAudio = () => {
+      audioInstance.resumeCtx();
+      if (audioInstance.ctx) {
+        // Play brief silent oscillator node
+        const buffer = audioInstance.ctx.createBuffer(1, 1, 22050);
+        const source = audioInstance.ctx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(audioInstance.ctx.destination);
+        source.start(0);
+        
+        if (audioInstance.ctx.resume) {
+          audioInstance.ctx.resume();
+        }
+      }
+      // Remove listeners once unlocked
+      window.removeEventListener("mousedown", unlockAudio, { passive: true });
+      window.removeEventListener("touchstart", unlockAudio, { passive: true });
+    };
+
+    window.addEventListener("mousedown", unlockAudio, { passive: true });
+    window.addEventListener("touchstart", unlockAudio, { passive: true });
+
+    return () => {
+      audioInstance.iosHapticCallback = null;
+      window.removeEventListener("mousedown", unlockAudio);
+      window.removeEventListener("touchstart", unlockAudio);
+    };
+  }, []);
+
   // Responsive canvas dimensions
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
+  const dimensionsRef = useRef({ width: 800, height: 600 });
   const [hasInitializedAtoms, setHasInitializedAtoms] = useState(false);
 
   // Score HUD states
@@ -50,9 +97,19 @@ export default function GameCanvas() {
 
     const updateSize = () => {
       const rect = parent.getBoundingClientRect();
-      const w = Math.max(200, rect.width);
-      const h = Math.max(200, rect.height);
-      setDimensions({ width: w, height: h });
+      const w = Math.max(200, Math.floor(rect.width));
+      const h = Math.max(200, Math.floor(rect.height));
+
+      // Calculate the difference
+      const current = dimensionsRef.current;
+      const dx = Math.abs(current.width - w);
+      const dy = Math.abs(current.height - h);
+
+      // Only update if dimensions change significantly (e.g. > 25px) or it's the initial load
+      if (dx > 25 || dy > 25 || current.width === 800) {
+        dimensionsRef.current = { width: w, height: h };
+        setDimensions({ width: w, height: h });
+      }
     };
 
     updateSize();
@@ -69,7 +126,7 @@ export default function GameCanvas() {
 
   // Spawn 4 large atoms once dimensions are known
   const resetGame = useCallback(() => {
-    const { width, height } = dimensions;
+    const { width, height } = dimensionsRef.current;
     if (width <= 200 || height <= 200) return;
 
     // Spawn 4 large atoms tightly clustered at the center
@@ -90,14 +147,14 @@ export default function GameCanvas() {
     setShots(0);
     setFissionCount(0);
     setHasInitializedAtoms(true);
-  }, [dimensions]);
+  }, []);
 
   // Handle dimensions change to trigger initial reset
   useEffect(() => {
     if (dimensions.width > 200 && dimensions.height > 200 && !hasInitializedAtoms) {
       resetGame();
     }
-  }, [dimensions, hasInitializedAtoms, resetGame]);
+  }, [dimensions.width, dimensions.height, hasInitializedAtoms, resetGame]);
 
   // Click or touch to fire a heavy particle from the bottom center
   const handleLaunchParticle = (clientX, clientY) => {
@@ -113,8 +170,8 @@ export default function GameCanvas() {
     const targetY = clientY - rect.top;
 
     // Launch coordinates: bottom center
-    const startX = dimensions.width / 2;
-    const startY = dimensions.height;
+    const startX = dimensionsRef.current.width / 2;
+    const startY = dimensionsRef.current.height;
 
     const dx = targetX - startX;
     const dy = targetY - startY;
@@ -179,11 +236,11 @@ export default function GameCanvas() {
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
 
-    const evapSparks = updateGameAtoms(atomsRef.current, dimensions.width, dimensions.height, timestamp);
+    const evapSparks = updateGameAtoms(atomsRef.current, dimensionsRef.current.width, dimensionsRef.current.height, timestamp);
     if (evapSparks && evapSparks.length > 0) {
       sparksRef.current.push(...evapSparks);
     }
-    projectilesRef.current = updateProjectiles(projectilesRef.current, dimensions.width, dimensions.height);
+    projectilesRef.current = updateProjectiles(projectilesRef.current, dimensionsRef.current.width, dimensionsRef.current.height);
     sparksRef.current = updateSparks(sparksRef.current);
 
     // 2. Perform projectile-nucleus collision checks and fission splits
@@ -206,7 +263,7 @@ export default function GameCanvas() {
     }
 
     // 3. Render scene
-    const center = { x: dimensions.width / 2, y: dimensions.height / 2 };
+    const center = { x: dimensionsRef.current.width / 2, y: dimensionsRef.current.height / 2 };
     drawProbabilityCloud(ctx, center, timestamp);
 
     // Render active sparks
@@ -246,8 +303,8 @@ export default function GameCanvas() {
     });
 
     // 4. Calculate dynamic aiming angle and draw pivoting heavy particle shooter
-    const startX = dimensions.width / 2;
-    const startY = dimensions.height;
+    const startX = dimensionsRef.current.width / 2;
+    const startY = dimensionsRef.current.height;
     const dx = mousePosRef.current.x - startX;
     const dy = mousePosRef.current.y - startY;
     const targetAngle = Math.atan2(dy, dx);
@@ -261,7 +318,7 @@ export default function GameCanvas() {
 
     drawLauncher(ctx, startX, startY, barrelAngleRef.current, recoilRef.current, flashIntensityRef.current);
 
-  }, [dimensions]);
+  }, []);
 
   // Sync requestAnimationFrame
   useEffect(() => {
@@ -359,6 +416,18 @@ export default function GameCanvas() {
           height: "100%",
           cursor: "crosshair"
         }}
+      />
+      {/* Hidden iOS Safari haptic toggle elements */}
+      <input
+        ref={iosHapticInputRef}
+        type="checkbox"
+        id="haptic-switch"
+        style={{ display: "none" }}
+      />
+      <label
+        id="haptic-trigger"
+        htmlFor="haptic-switch"
+        style={{ display: "none" }}
       />
     </div>
   );
