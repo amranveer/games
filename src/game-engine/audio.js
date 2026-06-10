@@ -45,16 +45,14 @@ class FissionAudio {
 
   resumeCtx() {
     this.init();
-    if (this.ctx && this.ctx.state === "suspended") {
-      this.ctx.resume();
+    if (this.ctx && (this.ctx.state === "suspended" || this.ctx.state === "interrupted")) {
+      this.ctx.resume().catch(e => console.warn("Failed to resume AudioContext:", e));
     }
   }
 
   playShoot() {
     this.triggerHaptic(12);
-    if (this.ctx && this.ctx.state === "suspended") {
-      this.ctx.resume();
-    }
+    this.resumeCtx();
     if (!this.ctx || this.muted) return;
 
     try {
@@ -67,12 +65,12 @@ class FissionAudio {
       // Deep energy charge & release zap
       osc.type = "sawtooth";
       osc.frequency.setValueAtTime(360, t);
-      osc.frequency.exponentialRampToValueAtTime(45, t + 0.16);
+      osc.frequency.linearRampToValueAtTime(45, t + 0.16);
 
       gain.gain.setValueAtTime(0.08, t);
-      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+      gain.gain.linearRampToValueAtTime(0, t + 0.16);
 
-      osc.start(t);
+      osc.start();
       osc.stop(t + 0.16);
     } catch (e) {
       console.warn("Audio play failed:", e);
@@ -81,9 +79,7 @@ class FissionAudio {
 
   playHit() {
     this.triggerHaptic(28);
-    if (this.ctx && this.ctx.state === "suspended") {
-      this.ctx.resume();
-    }
+    this.resumeCtx();
     if (!this.ctx || this.muted) return;
 
     try {
@@ -96,12 +92,12 @@ class FissionAudio {
 
       osc.type = "triangle";
       osc.frequency.setValueAtTime(680, t);
-      osc.frequency.exponentialRampToValueAtTime(180, t + 0.14);
+      osc.frequency.linearRampToValueAtTime(180, t + 0.14);
 
       gain.gain.setValueAtTime(0.12, t);
-      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
+      gain.gain.linearRampToValueAtTime(0, t + 0.14);
 
-      osc.start(t);
+      osc.start();
       osc.stop(t + 0.14);
     } catch (e) {
       console.warn("Audio play failed:", e);
@@ -110,9 +106,7 @@ class FissionAudio {
 
   playBounce() {
     this.triggerHaptic(5);
-    if (this.ctx && this.ctx.state === "suspended") {
-      this.ctx.resume();
-    }
+    this.resumeCtx();
     if (!this.ctx || this.muted) return;
 
     try {
@@ -126,9 +120,9 @@ class FissionAudio {
       osc.type = "sine";
       osc.frequency.setValueAtTime(1600, t);
       gain.gain.setValueAtTime(0.04, t);
-      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
+      gain.gain.linearRampToValueAtTime(0, t + 0.04);
 
-      osc.start(t);
+      osc.start();
       osc.stop(t + 0.04);
     } catch (e) {
       console.warn("Audio play failed:", e);
@@ -137,9 +131,7 @@ class FissionAudio {
 
   playFission() {
     this.triggerHaptic([60, 40, 100]);
-    if (this.ctx && this.ctx.state === "suspended") {
-      this.ctx.resume();
-    }
+    this.resumeCtx();
     if (!this.ctx || this.muted) return;
 
     try {
@@ -149,14 +141,14 @@ class FissionAudio {
       const gain = this.ctx.createGain();
       osc.type = "sine";
       osc.frequency.setValueAtTime(100, t);
-      osc.frequency.exponentialRampToValueAtTime(20, t + 0.45);
+      osc.frequency.linearRampToValueAtTime(20, t + 0.45);
 
       osc.connect(gain);
       gain.connect(this.ctx.destination);
       gain.gain.setValueAtTime(0.25, t);
-      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
+      gain.gain.linearRampToValueAtTime(0, t + 0.45);
 
-      osc.start(t);
+      osc.start();
       osc.stop(t + 0.45);
 
       // 2. High-pass crackling sound effect using noise buffer
@@ -173,17 +165,17 @@ class FissionAudio {
       const filter = this.ctx.createBiquadFilter();
       filter.type = "bandpass";
       filter.frequency.setValueAtTime(800, t);
-      filter.frequency.exponentialRampToValueAtTime(150, t + 0.35);
+      filter.frequency.linearRampToValueAtTime(150, t + 0.35);
 
       const noiseGain = this.ctx.createGain();
       noiseGain.connect(this.ctx.destination);
       noiseGain.gain.setValueAtTime(0.12, t);
-      noiseGain.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+      noiseGain.gain.linearRampToValueAtTime(0, t + 0.35);
 
       noise.connect(filter);
       filter.connect(noiseGain);
 
-      noise.start(t);
+      noise.start();
       noise.stop(t + 0.35);
     } catch (e) {
       console.warn("Audio play failed:", e);
@@ -193,9 +185,7 @@ class FissionAudio {
   // Alchemical register / store click
   playRegister() {
     this.triggerHaptic(15);
-    if (this.ctx && this.ctx.state === "suspended") {
-      this.ctx.resume();
-    }
+    this.resumeCtx();
     if (!this.ctx || this.muted) return;
 
     try {
@@ -213,15 +203,15 @@ class FissionAudio {
       osc2.frequency.setValueAtTime(1567.98, t + 0.06);
 
       gain.gain.setValueAtTime(0.08, t);
-      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+      gain.gain.linearRampToValueAtTime(0, t + 0.2);
 
       osc1.connect(gain);
       osc2.connect(gain);
       gain.connect(this.ctx.destination);
 
-      osc1.start(t);
+      osc1.start();
       osc1.stop(t + 0.22);
-      osc2.start(t);
+      osc2.start();
       osc2.stop(t + 0.22);
     } catch (e) {
       console.warn("Audio play failed:", e);
