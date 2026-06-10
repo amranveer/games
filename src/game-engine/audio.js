@@ -52,7 +52,9 @@ class FissionAudio {
 
   playShoot() {
     this.triggerHaptic(12);
-    this.resumeCtx();
+    if (this.ctx && this.ctx.state === "suspended") {
+      this.ctx.resume();
+    }
     if (!this.ctx || this.muted) return;
 
     try {
@@ -79,7 +81,9 @@ class FissionAudio {
 
   playHit() {
     this.triggerHaptic(28);
-    this.resumeCtx();
+    if (this.ctx && this.ctx.state === "suspended") {
+      this.ctx.resume();
+    }
     if (!this.ctx || this.muted) return;
 
     try {
@@ -106,7 +110,9 @@ class FissionAudio {
 
   playBounce() {
     this.triggerHaptic(5);
-    this.resumeCtx();
+    if (this.ctx && this.ctx.state === "suspended") {
+      this.ctx.resume();
+    }
     if (!this.ctx || this.muted) return;
 
     try {
@@ -131,7 +137,9 @@ class FissionAudio {
 
   playFission() {
     this.triggerHaptic([60, 40, 100]);
-    this.resumeCtx();
+    if (this.ctx && this.ctx.state === "suspended") {
+      this.ctx.resume();
+    }
     if (!this.ctx || this.muted) return;
 
     try {
@@ -185,7 +193,9 @@ class FissionAudio {
   // Alchemical register / store click
   playRegister() {
     this.triggerHaptic(15);
-    this.resumeCtx();
+    if (this.ctx && this.ctx.state === "suspended") {
+      this.ctx.resume();
+    }
     if (!this.ctx || this.muted) return;
 
     try {

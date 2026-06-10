@@ -37,31 +37,54 @@ export default function GameCanvas() {
       }
     };
 
-    // 3. Web Audio Unlocker for iOS Safari (resumes on first click or touch)
+    // 3. Web Audio Unlocker for iOS Safari (resumes on first interaction)
     const unlockAudio = () => {
+      // 3a. Force browser to play HTML5 audio (forces 'playback' audio session class, bypassing ring/silent switch mute)
+      const silenceAudio = document.getElementById("silence-audio");
+      if (silenceAudio) {
+        silenceAudio.play().then(() => {
+          console.log("Audio session unlocked on iOS");
+        }).catch(e => {
+          console.warn("Silent audio tag play failed", e);
+        });
+      }
+
+      // 3b. Wake up and unlock AudioContext
       audioInstance.resumeCtx();
       if (audioInstance.ctx) {
-        // Play brief silent oscillator node
-        const buffer = audioInstance.ctx.createBuffer(1, 1, 22050);
-        const source = audioInstance.ctx.createBufferSource();
-        source.buffer = buffer;
-        source.connect(audioInstance.ctx.destination);
-        source.start(0);
-        
-        if (audioInstance.ctx.resume) {
-          audioInstance.ctx.resume();
+        try {
+          const buffer = audioInstance.ctx.createBuffer(1, 1, 22050);
+          const source = audioInstance.ctx.createBufferSource();
+          source.buffer = buffer;
+          source.connect(audioInstance.ctx.destination);
+          
+          if (source.start) {
+            source.start(0);
+          } else if (source.noteOn) {
+            source.noteOn(0);
+          }
+        } catch (e) {
+          console.warn("Failed to play silent buffer node", e);
         }
       }
-      // Remove listeners once unlocked
-      window.removeEventListener("mousedown", unlockAudio, { passive: true });
-      window.removeEventListener("touchstart", unlockAudio, { passive: true });
+
+      // 3c. Remove all unlock listeners after the first interaction
+      window.removeEventListener("click", unlockAudio);
+      window.removeEventListener("touchend", unlockAudio);
+      window.removeEventListener("mousedown", unlockAudio);
+      window.removeEventListener("touchstart", unlockAudio);
     };
 
-    window.addEventListener("mousedown", unlockAudio, { passive: true });
-    window.addEventListener("touchstart", unlockAudio, { passive: true });
+    // Active (non-passive) listeners are REQUIRED on iOS to allow media play and AudioContext resume
+    window.addEventListener("click", unlockAudio, { passive: false });
+    window.addEventListener("touchend", unlockAudio, { passive: false });
+    window.addEventListener("mousedown", unlockAudio, { passive: false });
+    window.addEventListener("touchstart", unlockAudio, { passive: false });
 
     return () => {
       audioInstance.iosHapticCallback = null;
+      window.removeEventListener("click", unlockAudio);
+      window.removeEventListener("touchend", unlockAudio);
       window.removeEventListener("mousedown", unlockAudio);
       window.removeEventListener("touchstart", unlockAudio);
     };
@@ -427,6 +450,14 @@ export default function GameCanvas() {
       <label
         id="haptic-trigger"
         htmlFor="haptic-switch"
+        style={{ display: "none" }}
+      />
+      {/* Silent HTML5 audio tag to force audio session output category (bypasses phone silent ring switch) */}
+      <audio
+        id="silence-audio"
+        loop
+        playsInline
+        src="data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAAA"
         style={{ display: "none" }}
       />
     </div>
