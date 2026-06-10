@@ -53,9 +53,17 @@ export default function GameCanvas() {
       const silenceAudio = document.getElementById("silence-audio");
       if (silenceAudio) {
         log += "found_silence_tag ";
-        silenceAudio.play()
-          .then(() => { log += "play_ok "; })
-          .catch(e => { log += `play_err:${e.message || e} `; });
+        try {
+          const p = silenceAudio.play();
+          if (p && typeof p.then === "function") {
+            p.then(() => { log += "play_ok "; })
+             .catch(e => { log += `play_err:${e.message || e} `; });
+          } else {
+            log += "play_sync_ok ";
+          }
+        } catch (e) {
+          log += `play_err:${e.message || e} `;
+        }
       } else {
         log += "no_silence_tag ";
       }
