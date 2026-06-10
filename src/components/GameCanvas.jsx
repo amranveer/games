@@ -16,11 +16,76 @@ import {
   drawLauncher
 } from "../game-engine/renderer";
 import audioInstance from "../game-engine/audio";
+import SoundToggle from "./SoundToggle";
 
 export default function GameCanvas() {
   const iosHapticInputRef = useRef(null);
   const canvasRef = useRef(null);
   const requestRef = useRef(null);
+
+  // Set up iOS Safari Web Audio unlocker and hidden Switch haptics
+  const [audioStatus, setAudioStatus] = useState("LOCKED");
+
+  // Audio unlock — fires on first valid iOS gesture (touchend or click).
+  // Correct order: audioSession → silent HTML5 audio → init() → resume → warmup buffer.
+  // Must be 100% synchronous — any await breaks the iOS user gesture chain.
+  const unlockAudio = useCallback(() => {
+    // Step 1: Elevate audio session BEFORE creating the AudioContext.
+    // This makes iOS route audio through the Playback category (ignores silent switch).
+    // Available on iOS Safari 16.4+.
+    if (typeof navigator !== "undefined" && navigator.audioSession) {
+      try { navigator.audioSession.type = "playback"; } catch (e) {}
+    }
+
+    // Step 2: Play a looping silent HTML5 <audio> tag.
+    // On iOS ≤16.3 (no audioSession API), this "kick" elevates the audio session category
+    // to Playback for all subsequent Web Audio API output.
+    const silenceAudio = document.getElementById("silence-audio");
+    if (silenceAudio) {
+      silenceAudio.play().catch(e => console.warn("Silent audio play failed:", e));
+    }
+
+    // Step 3: Create the AudioContext — now inside a valid touchend/click call stack.
+    // This is the ONLY place init() is called. Never from touchstart or RAF loops.
+    audioInstance.init();
+
+    // Step 4: Resume the context if suspended or interrupted.
+    audioInstance.resumeCtx();
+
+    // Step 5: Play a 1-sample silent buffer to prime the hardware audio graph.
+    // This "warms up" the pipeline so real sounds play immediately without a gap.
+    if (audioInstance.ctx) {
+      try {
+        const warmupBuffer = audioInstance.ctx.createBuffer(1, 1, 22050);
+        const warmupSource = audioInstance.ctx.createBufferSource();
+        warmupSource.buffer = warmupBuffer;
+        warmupSource.connect(audioInstance.ctx.destination);
+        warmupSource.start(0);
+      } catch (e) {
+        console.warn("Warmup buffer failed:", e);
+      }
+    }
+
+    // Step 6: Remove listeners — only one unlock needed per session.
+    window.removeEventListener("click", unlockAudio);
+    window.removeEventListener("touchend", unlockAudio);
+  }, []);
+
+  // Poll state of the context to update HUD dynamically
+  useEffect(() => {
+    const checkStatus = () => {
+      if (audioInstance.muted) {
+        setAudioStatus("MUTED");
+      } else if (!audioInstance.ctx) {
+        setAudioStatus("LOCKED");
+      } else {
+        setAudioStatus(audioInstance.ctx.state.toUpperCase());
+      }
+    };
+    checkStatus();
+    const interval = setInterval(checkStatus, 300);
+    return () => clearInterval(interval);
+  }, []);
 
   // Set up iOS Safari Web Audio unlocker and hidden Switch haptics
   useEffect(() => {
@@ -35,51 +100,6 @@ export default function GameCanvas() {
       if (label) { label.click(); }
     };
 
-    // 3. Audio unlock — fires on first valid iOS gesture (touchend or click).
-    //    Correct order: audioSession → silent HTML5 audio → init() → resume → warmup buffer.
-    //    Must be 100% synchronous — any await breaks the iOS user gesture chain.
-    const unlockAudio = () => {
-      // Step 1: Elevate audio session BEFORE creating the AudioContext.
-      // This makes iOS route audio through the Playback category (ignores silent switch).
-      // Available on iOS Safari 16.4+.
-      if (typeof navigator !== "undefined" && navigator.audioSession) {
-        try { navigator.audioSession.type = "playback"; } catch (e) {}
-      }
-
-      // Step 2: Play a looping silent HTML5 <audio> tag.
-      // On iOS ≤16.3 (no audioSession API), this "kick" elevates the audio session category
-      // to Playback for all subsequent Web Audio API output.
-      const silenceAudio = document.getElementById("silence-audio");
-      if (silenceAudio) {
-        silenceAudio.play().catch(e => console.warn("Silent audio play failed:", e));
-      }
-
-      // Step 3: Create the AudioContext — now inside a valid touchend/click call stack.
-      // This is the ONLY place init() is called. Never from touchstart or RAF loops.
-      audioInstance.init();
-
-      // Step 4: Resume the context if suspended or interrupted.
-      audioInstance.resumeCtx();
-
-      // Step 5: Play a 1-sample silent buffer to prime the hardware audio graph.
-      // This "warms up" the pipeline so real sounds play immediately without a gap.
-      if (audioInstance.ctx) {
-        try {
-          const warmupBuffer = audioInstance.ctx.createBuffer(1, 1, 22050);
-          const warmupSource = audioInstance.ctx.createBufferSource();
-          warmupSource.buffer = warmupBuffer;
-          warmupSource.connect(audioInstance.ctx.destination);
-          warmupSource.start(0);
-        } catch (e) {
-          console.warn("Warmup buffer failed:", e);
-        }
-      }
-
-      // Step 6: Remove listeners — only one unlock needed per session.
-      window.removeEventListener("click", unlockAudio);
-      window.removeEventListener("touchend", unlockAudio);
-    };
-
     // touchend and click are the ONLY gestures iOS Safari accepts for AudioContext creation.
     // passive: false ensures the handler can call preventDefault if needed.
     window.addEventListener("touchend", unlockAudio, { passive: false });
@@ -90,7 +110,7 @@ export default function GameCanvas() {
       window.removeEventListener("touchend", unlockAudio);
       window.removeEventListener("click", unlockAudio);
     };
-  }, []);
+  }, [unlockAudio]);
 
   // Responsive canvas dimensions
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
@@ -385,7 +405,7 @@ export default function GameCanvas() {
           letterSpacing: "0.05em"
         }}
       >
-        <div style={{ display: "flex", gap: "28px" }}>
+        <div style={{ display: "flex", gap: "28px", alignItems: "center" }}>
           <div>
             SCORE <span style={{ color: "#334155", fontWeight: "bold", fontSize: "1.05rem", marginLeft: "6px" }}>{score}</span>
           </div>
@@ -395,35 +415,46 @@ export default function GameCanvas() {
           <div>
             FISSIONS <span style={{ color: "#334155", fontWeight: "bold", fontSize: "1.05rem", marginLeft: "6px" }}>{fissionCount}</span>
           </div>
+          <div>
+            AUDIO <span style={{
+              color: audioStatus === "RUNNING" ? "#39ff14" : audioStatus === "MUTED" ? "#707080" : "#ff007f",
+              fontWeight: "bold",
+              fontSize: "1.01rem",
+              marginLeft: "6px",
+              textShadow: audioStatus === "RUNNING" ? "0 0 10px rgba(57,255,20,0.3)" : "none"
+            }}>{audioStatus}</span>
+          </div>
         </div>
 
-        <button
-          onClick={resetGame}
-          style={{
-            pointerEvents: "auto",
-            background: "#ffffff",
-            border: "1px solid rgba(226, 232, 240, 0.8)",
-            borderRadius: "8px",
-            padding: "8px 16px",
-            fontSize: "0.75rem",
-            color: "#64748b",
-            cursor: "pointer",
-            fontFamily: "monospace",
-            boxShadow: "0 2px 10px rgba(148, 163, 184, 0.05)",
-            transition: "all 0.15s ease",
-            outline: "none"
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.borderColor = "#cbd5e1";
-            e.currentTarget.style.color = "#334155";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = "rgba(226, 232, 240, 0.8)";
-            e.currentTarget.style.color = "#64748b";
-          }}
-        >
-          RESET LATTICE
-        </button>
+        <div style={{ display: "flex", gap: "12px", alignItems: "center", pointerEvents: "auto" }}>
+          <SoundToggle size="small" />
+          <button
+            onClick={resetGame}
+            style={{
+              background: "#ffffff",
+              border: "1px solid rgba(226, 232, 240, 0.8)",
+              borderRadius: "8px",
+              padding: "8px 16px",
+              fontSize: "0.75rem",
+              color: "#64748b",
+              cursor: "pointer",
+              fontFamily: "monospace",
+              boxShadow: "0 2px 10px rgba(148, 163, 184, 0.05)",
+              transition: "all 0.15s ease",
+              outline: "none"
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = "#cbd5e1";
+              e.currentTarget.style.color = "#334155";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = "rgba(226, 232, 240, 0.8)";
+              e.currentTarget.style.color = "#64748b";
+            }}
+          >
+            RESET LATTICE
+          </button>
+        </div>
       </div>
 
       <canvas
@@ -434,6 +465,8 @@ export default function GameCanvas() {
         onTouchStart={handleTouchStart}
         onMouseMove={handleMouseMove}
         onTouchMove={handleTouchMove}
+        onClick={unlockAudio}
+        onTouchEnd={unlockAudio}
         style={{
           display: "block",
           width: "100%",
