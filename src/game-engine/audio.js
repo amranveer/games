@@ -1,7 +1,7 @@
-import { MP3_ASSETS } from "./sound-assets";
+import { WAV_ASSETS } from "./sound-assets";
 
 // Helper to translate Base64 string to a local binary Blob URL
-function base64ToBlobUrl(base64Data, contentType = "audio/mp3") {
+function base64ToBlobUrl(base64Data, contentType = "audio/wav") {
   if (typeof window === "undefined") return "";
   try {
     const base64Str = base64Data.split(",")[1];
@@ -104,10 +104,10 @@ class FissionAudio {
   prefetchSounds() {
     if (typeof window === "undefined") return;
     
-    // Translate Base64 MP3s to local Blob URLs exactly once on startup
+    // Translate Base64 WAVs to local Blob URLs exactly once on startup
     if (Object.keys(this.blobUrls).length === 0) {
-      for (const [name, base64] of Object.entries(MP3_ASSETS)) {
-        this.blobUrls[name] = base64ToBlobUrl(base64);
+      for (const [name, base64] of Object.entries(WAV_ASSETS)) {
+        this.blobUrls[name] = base64ToBlobUrl(base64, "audio/wav");
       }
     }
   }
