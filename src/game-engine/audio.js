@@ -1,18 +1,48 @@
+import { MP3_ASSETS } from "./sound-assets";
+
+// Helper to translate Base64 string to a local binary Blob URL
+function base64ToBlobUrl(base64Data, contentType = "audio/mp3") {
+  if (typeof window === "undefined") return "";
+  try {
+    const base64Str = base64Data.split(",")[1];
+    const byteCharacters = atob(base64Str);
+    const sliceSize = 512;
+    const byteArrays = [];
+
+    for (let offset = 0; offset < byteCharacters.length; offset += sliceSize) {
+      const slice = byteCharacters.slice(offset, offset + sliceSize);
+      const byteNumbers = new Array(slice.length);
+      for (let i = 0; i < slice.length; i++) {
+        byteNumbers[i] = slice.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      byteArrays.push(byteArray);
+    }
+
+    const blob = new Blob(byteArrays, { type: contentType });
+    return URL.createObjectURL(blob);
+  } catch (e) {
+    console.error("Failed to convert base64 to Blob URL:", e);
+    return base64Data; // fallback to raw base64
+  }
+}
+
 class HTML5AudioPool {
-  constructor(name, size = 4) {
-    this.name = name;
+  constructor(blobUrl, size = 4) {
+    this.blobUrl = blobUrl;
     this.size = size;
     this.pool = [];
   }
 
   init() {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined" || !this.blobUrl) return;
     this.pool = [];
     for (let i = 0; i < this.size; i++) {
-      const audio = document.getElementById(`audio-${this.name}-${i}`);
-      if (audio) {
-        this.pool.push(audio);
-      }
+      const audio = new Audio();
+      audio.src = this.blobUrl;
+      audio.preload = "auto";
+      audio.load();
+      this.pool.push(audio);
     }
   }
 
@@ -44,7 +74,10 @@ class HTML5AudioPool {
   play() {
     if (this.pool.length === 0) return;
     try {
-      // Find the first idle (paused or ended) audio channel
+      // Senior Optimization: Find the first idle (paused or ended) audio channel.
+      // We do NOT call currentTime = 0 or pause() here during gameplay.
+      // This completely avoids iOS WebKit thread-blocking media decoder flushes.
+      // If all channels are currently busy, we drop the playback request to maintain 60fps.
       const audio = this.pool.find(a => a.paused || a.ended);
       if (audio) {
         const p = audio.play();
@@ -53,7 +86,7 @@ class HTML5AudioPool {
         }
       }
     } catch (e) {
-      console.warn(`HTML5 play failed for ${this.name}:`, e);
+      console.warn("HTML5 play failed:", e);
     }
   }
 }
@@ -62,13 +95,21 @@ class FissionAudio {
   constructor() {
     this.muted = false;
     this.pools = {};
+    this.blobUrls = {};
     this.initLog = "await_init";
     this.initError = "";
     this.useHTML5 = true; 
   }
 
   prefetchSounds() {
-    // Sound elements are rendered statically in the HTML DOM, so no-op.
+    if (typeof window === "undefined") return;
+    
+    // Translate Base64 MP3s to local Blob URLs exactly once on startup
+    if (Object.keys(this.blobUrls).length === 0) {
+      for (const [name, base64] of Object.entries(MP3_ASSETS)) {
+        this.blobUrls[name] = base64ToBlobUrl(base64);
+      }
+    }
   }
 
   init() {
@@ -79,18 +120,15 @@ class FissionAudio {
     }
 
     try {
-      const soundConfig = {
-        shoot: 3,
-        hit: 4,
-        bounce: 6,
-        fission: 2,
-        register: 2
-      };
+      // Ensure blobs are generated
+      this.prefetchSounds();
 
-      // Find and unlock each statically declared sound pool
-      for (const [name, poolSize] of Object.entries(soundConfig)) {
+      // Initialize and unlock each sound pool
+      for (const [name, blobUrl] of Object.entries(this.blobUrls)) {
         if (!this.pools[name]) {
-          const pool = new HTML5AudioPool(name, poolSize);
+          // Senior Polyphony Tuning: balanced size to avoid drops without overloading the OS mixer
+          const poolSize = name === "bounce" ? 6 : (name === "hit" ? 4 : (name === "shoot" ? 3 : 2));
+          const pool = new HTML5AudioPool(blobUrl, poolSize);
           pool.init();
           pool.unlock();
           this.pools[name] = pool;
